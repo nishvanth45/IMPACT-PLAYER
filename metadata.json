@@ -1,0 +1,8 @@
+{
+  "name": "IMPACT PLAYER",
+  "description": "Your franchise. Your decisions. Your legacy , Win the Title. 🏆",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
