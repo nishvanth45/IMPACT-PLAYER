@@ -1,0 +1,151 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Private authenticated player account profile linked to Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID matching the document ID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "User display name from Google Sign-In.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Verified email address of the signed-in user (PII, owner-only).",
+          "minLength": 3,
+          "maxLength": 254
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "Profile avatar URL from Google Sign-In or empty string.",
+          "maxLength": 512
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when profile was first created (immutable)."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest profile update."
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "email",
+        "photoURL",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "GameSave": {
+      "title": "Franchise Game Save",
+      "description": "Cloud-persisted franchise draft, Playing XI, active season, settings, and career progression for a signed-in user.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID matching parent userId.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "schemaVersion": {
+          "type": "number",
+          "description": "Save payload schema version."
+        },
+        "franchiseName": {
+          "type": "string",
+          "description": "Active franchise name summary.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "squadCount": {
+          "type": "number",
+          "description": "Number of drafted players currently in the squad."
+        },
+        "draftStatus": {
+          "type": "string",
+          "description": "Current draft phase status.",
+          "enum": ["READY_TO_SPIN", "PICKING_PLAYER", "COMPLETED"],
+          "maxLength": 32
+        },
+        "settings": {
+          "type": "object",
+          "description": "Draft and match configuration settings map."
+        },
+        "draft": {
+          "type": "object",
+          "description": "Draft state including custom franchise, purse, squad, retentions, and spin history."
+        },
+        "playingXi": {
+          "type": "object",
+          "description": "Selected Playing XI IDs, captain, wicketkeeper, and confirmation flag."
+        },
+        "career": {
+          "type": "object",
+          "description": "Career seasons played, titles won, best finish, and unlocked achievements."
+        },
+        "season": {
+          "type": "object",
+          "description": "Active season state map or null when no season has started."
+        },
+        "activeMatch": {
+          "type": "object",
+          "description": "Reference to an in-progress league or playoff match, or null."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when cloud save was created (immutable)."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest cloud save update."
+        }
+      },
+      "required": [
+        "ownerUid",
+        "schemaVersion",
+        "franchiseName",
+        "squadCount",
+        "draftStatus",
+        "settings",
+        "draft",
+        "playingXi",
+        "career",
+        "season",
+        "activeMatch",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserProfile"
+      },
+      "description": "Owner-only private profile document for each authenticated user."
+    },
+    "/users/{userId}/gameSaves/{saveId}": {
+      "schema": {
+        "$ref": "#/entities/GameSave"
+      },
+      "description": "Owner-only cloud save slot (e.g. saveId='current') storing user franchise, draft, Playing XI, season, and career progression."
+    }
+  }
+}

@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { RotateCcw, X } from 'lucide-react';
 import { DEFAULT_SETTINGS } from '../game/draftEngine';
-import type { DraftSettings } from '../types/game';
+import type { AnimationMode, DraftSettings } from '../types/game';
+import { GameButton } from './ui';
 
 interface SettingsModalProps {
   settings: DraftSettings;
@@ -25,20 +26,20 @@ export function SettingsModal({ settings, onClose, onSave }: SettingsModalProps)
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-[#080B0D]/80 p-0 sm:items-center sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="settings-modal-title"
     >
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-md border-2 border-[#141619] bg-[#FAF8F3] p-5 text-[#141619] shadow-2xl sm:rounded-md sm:p-6">
-        <div className="flex items-center justify-between border-b-2 border-[#141619] pb-3">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-[2px] border border-[#263039] bg-[#0E1318] p-5 text-[#F5F2EA] shadow-2xl sm:rounded-[2px] sm:p-6">
+        <div className="flex items-center justify-between border-b border-[#263039] pb-3">
           <div>
-            <div className="font-mono text-[10px] font-bold tracking-widest text-[#D94E28] uppercase">
+            <div className="font-mono text-[10px] font-bold tracking-widest text-[#22D36B] uppercase">
               Franchise Configuration
             </div>
             <h2
               id="settings-modal-title"
-              className="font-display text-2xl font-extrabold tracking-wide text-[#141619] uppercase"
+              className="font-display text-2xl font-extrabold tracking-wide text-[#F5F2EA] uppercase"
             >
               Draft &amp; Match Settings
             </h2>
@@ -47,7 +48,7 @@ export function SettingsModal({ settings, onClose, onSave }: SettingsModalProps)
             type="button"
             onClick={onClose}
             aria-label="Close settings"
-            className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-[3px] border border-[#141619]/20 bg-white text-[#141619] transition-colors hover:bg-[#141619] hover:text-white"
+            className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-[2px] border border-[#263039] bg-[#111820] text-[#9DA8B3] transition-colors hover:border-[#22D36B] hover:text-[#F5F2EA]"
           >
             <X className="h-5 w-5" aria-hidden="true" />
           </button>
@@ -55,7 +56,7 @@ export function SettingsModal({ settings, onClose, onSave }: SettingsModalProps)
 
         <div className="mt-4 space-y-4">
           <label className="block">
-            <span className="font-mono text-[11px] font-bold tracking-wider text-[#4A4E54] uppercase">
+            <span className="font-mono text-[11px] font-bold tracking-wider text-[#9DA8B3] uppercase">
               Franchise Name
             </span>
             <input
@@ -69,13 +70,13 @@ export function SettingsModal({ settings, onClose, onSave }: SettingsModalProps)
                 }))
               }
               placeholder="Mumbai Warriors"
-              className="mt-1 min-h-[42px] w-full rounded-[3px] border border-[#141619]/30 bg-white px-3 py-2 font-display text-base font-bold tracking-wide text-[#141619] uppercase focus:border-[#D94E28] focus:outline-none"
+              className="mt-1 min-h-[42px] w-full rounded-[2px] border border-[#263039] bg-[#111820] px-3 py-2 font-display text-base font-bold tracking-wide text-[#F5F2EA] uppercase focus:border-[#22D36B] focus:outline-none"
             />
           </label>
 
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
-              <span className="font-mono text-[11px] font-bold tracking-wider text-[#4A4E54] uppercase">
+              <span className="font-mono text-[11px] font-bold tracking-wider text-[#9DA8B3] uppercase">
                 Starting Purse (₹ Cr)
               </span>
               <input
@@ -90,12 +91,12 @@ export function SettingsModal({ settings, onClose, onSave }: SettingsModalProps)
                     startingPurseCr: Math.max(60, Math.min(200, Number(e.target.value) || 120)),
                   }))
                 }
-                className="mt-1 min-h-[42px] w-full rounded-[3px] border border-[#141619]/30 bg-white px-3 py-2 font-mono text-sm font-semibold text-[#141619] tabular-nums focus:border-[#D94E28] focus:outline-none"
+                className="mt-1 min-h-[42px] w-full rounded-[2px] border border-[#263039] bg-[#111820] px-3 py-2 font-mono text-sm font-semibold text-[#F5F2EA] tabular-nums focus:border-[#22D36B] focus:outline-none"
               />
             </label>
 
             <label className="block">
-              <span className="font-mono text-[11px] font-bold tracking-wider text-[#4A4E54] uppercase">
+              <span className="font-mono text-[11px] font-bold tracking-wider text-[#9DA8B3] uppercase">
                 Squad Size
               </span>
               <input
@@ -109,12 +110,12 @@ export function SettingsModal({ settings, onClose, onSave }: SettingsModalProps)
                     squadSize: Math.max(11, Math.min(18, Number(e.target.value) || 15)),
                   }))
                 }
-                className="mt-1 min-h-[42px] w-full rounded-[3px] border border-[#141619]/30 bg-white px-3 py-2 font-mono text-sm font-semibold text-[#141619] tabular-nums focus:border-[#D94E28] focus:outline-none"
+                className="mt-1 min-h-[42px] w-full rounded-[2px] border border-[#263039] bg-[#111820] px-3 py-2 font-mono text-sm font-semibold text-[#F5F2EA] tabular-nums focus:border-[#22D36B] focus:outline-none"
               />
             </label>
 
             <label className="block">
-              <span className="font-mono text-[11px] font-bold tracking-wider text-[#4A4E54] uppercase">
+              <span className="font-mono text-[11px] font-bold tracking-wider text-[#9DA8B3] uppercase">
                 Overseas Squad Cap
               </span>
               <input
@@ -128,12 +129,12 @@ export function SettingsModal({ settings, onClose, onSave }: SettingsModalProps)
                     overseasSquadLimit: Math.max(2, Math.min(8, Number(e.target.value) || 6)),
                   }))
                 }
-                className="mt-1 min-h-[42px] w-full rounded-[3px] border border-[#141619]/30 bg-white px-3 py-2 font-mono text-sm font-semibold text-[#141619] tabular-nums focus:border-[#D94E28] focus:outline-none"
+                className="mt-1 min-h-[42px] w-full rounded-[2px] border border-[#263039] bg-[#111820] px-3 py-2 font-mono text-sm font-semibold text-[#F5F2EA] tabular-nums focus:border-[#22D36B] focus:outline-none"
               />
             </label>
 
             <label className="block">
-              <span className="font-mono text-[11px] font-bold tracking-wider text-[#4A4E54] uppercase">
+              <span className="font-mono text-[11px] font-bold tracking-wider text-[#9DA8B3] uppercase">
                 Playing XI OS Cap
               </span>
               <input
@@ -147,12 +148,12 @@ export function SettingsModal({ settings, onClose, onSave }: SettingsModalProps)
                     playingXIOverseasLimit: Math.max(2, Math.min(6, Number(e.target.value) || 4)),
                   }))
                 }
-                className="mt-1 min-h-[42px] w-full rounded-[3px] border border-[#141619]/30 bg-white px-3 py-2 font-mono text-sm font-semibold text-[#141619] tabular-nums focus:border-[#D94E28] focus:outline-none"
+                className="mt-1 min-h-[42px] w-full rounded-[2px] border border-[#263039] bg-[#111820] px-3 py-2 font-mono text-sm font-semibold text-[#F5F2EA] tabular-nums focus:border-[#22D36B] focus:outline-none"
               />
             </label>
 
             <label className="block">
-              <span className="font-mono text-[11px] font-bold tracking-wider text-[#4A4E54] uppercase">
+              <span className="font-mono text-[11px] font-bold tracking-wider text-[#9DA8B3] uppercase">
                 Season Start
               </span>
               <input
@@ -166,12 +167,12 @@ export function SettingsModal({ settings, onClose, onSave }: SettingsModalProps)
                     seasonStart: Math.max(2008, Math.min(2026, Number(e.target.value) || 2008)),
                   }))
                 }
-                className="mt-1 min-h-[42px] w-full rounded-[3px] border border-[#141619]/30 bg-white px-3 py-2 font-mono text-sm font-semibold text-[#141619] tabular-nums focus:border-[#D94E28] focus:outline-none"
+                className="mt-1 min-h-[42px] w-full rounded-[2px] border border-[#263039] bg-[#111820] px-3 py-2 font-mono text-sm font-semibold text-[#F5F2EA] tabular-nums focus:border-[#22D36B] focus:outline-none"
               />
             </label>
 
             <label className="block">
-              <span className="font-mono text-[11px] font-bold tracking-wider text-[#4A4E54] uppercase">
+              <span className="font-mono text-[11px] font-bold tracking-wider text-[#9DA8B3] uppercase">
                 Season End
               </span>
               <input
@@ -185,14 +186,14 @@ export function SettingsModal({ settings, onClose, onSave }: SettingsModalProps)
                     seasonEnd: Math.max(2008, Math.min(2026, Number(e.target.value) || 2026)),
                   }))
                 }
-                className="mt-1 min-h-[42px] w-full rounded-[3px] border border-[#141619]/30 bg-white px-3 py-2 font-mono text-sm font-semibold text-[#141619] tabular-nums focus:border-[#D94E28] focus:outline-none"
+                className="mt-1 min-h-[42px] w-full rounded-[2px] border border-[#263039] bg-[#111820] px-3 py-2 font-mono text-sm font-semibold text-[#F5F2EA] tabular-nums focus:border-[#22D36B] focus:outline-none"
               />
             </label>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
-              <span className="font-mono text-[11px] font-bold tracking-wider text-[#4A4E54] uppercase">
+              <span className="font-mono text-[11px] font-bold tracking-wider text-[#9DA8B3] uppercase">
                 Difficulty
               </span>
               <select
@@ -203,7 +204,7 @@ export function SettingsModal({ settings, onClose, onSave }: SettingsModalProps)
                     difficulty: e.target.value as DraftSettings['difficulty'],
                   }))
                 }
-                className="mt-1 min-h-[42px] w-full rounded-[3px] border border-[#141619]/30 bg-white px-3 py-2 text-sm font-semibold text-[#141619] focus:border-[#D94E28] focus:outline-none"
+                className="mt-1 min-h-[42px] w-full rounded-[2px] border border-[#263039] bg-[#111820] px-3 py-2 text-sm font-semibold text-[#F5F2EA] focus:border-[#22D36B] focus:outline-none"
               >
                 <option value="Casual">Casual</option>
                 <option value="Standard">Standard</option>
@@ -212,7 +213,7 @@ export function SettingsModal({ settings, onClose, onSave }: SettingsModalProps)
             </label>
 
             <label className="block">
-              <span className="font-mono text-[11px] font-bold tracking-wider text-[#4A4E54] uppercase">
+              <span className="font-mono text-[11px] font-bold tracking-wider text-[#9DA8B3] uppercase">
                 Sim Speed
               </span>
               <select
@@ -223,7 +224,7 @@ export function SettingsModal({ settings, onClose, onSave }: SettingsModalProps)
                     simSpeed: e.target.value as DraftSettings['simSpeed'],
                   }))
                 }
-                className="mt-1 min-h-[42px] w-full rounded-[3px] border border-[#141619]/30 bg-white px-3 py-2 text-sm font-semibold text-[#141619] focus:border-[#D94E28] focus:outline-none"
+                className="mt-1 min-h-[42px] w-full rounded-[2px] border border-[#263039] bg-[#111820] px-3 py-2 text-sm font-semibold text-[#F5F2EA] focus:border-[#22D36B] focus:outline-none"
               >
                 <option value="Normal">Normal</option>
                 <option value="Fast">Fast</option>
@@ -231,58 +232,103 @@ export function SettingsModal({ settings, onClose, onSave }: SettingsModalProps)
             </label>
           </div>
 
-          <div className="space-y-2 border-t border-[#141619]/15 pt-3">
-            <label className="flex min-h-[42px] cursor-pointer items-center justify-between rounded-[3px] border border-[#141619]/20 bg-white px-3.5 py-2">
-              <span className="text-sm font-semibold text-[#141619]">Sound Effects</span>
+          <div className="space-y-2 border-t border-[#263039] pt-3">
+            <label className="flex min-h-[42px] cursor-pointer items-center justify-between rounded-[2px] border border-[#263039] bg-[#111820] px-3.5 py-2">
+              <span className="text-sm font-semibold text-[#F5F2EA]">Sound Effects</span>
               <input
                 type="checkbox"
                 checked={draft.soundEnabled}
                 onChange={(e) => setDraft((prev) => ({ ...prev, soundEnabled: e.target.checked }))}
-                className="h-4 w-4 accent-[#D94E28]"
+                className="h-4 w-4 accent-[#22D36B]"
               />
             </label>
 
-            <label className="flex min-h-[42px] cursor-pointer items-center justify-between rounded-[3px] border border-[#141619]/20 bg-white px-3.5 py-2">
-              <span className="text-sm font-semibold text-[#141619]">Spin &amp; Match Animations</span>
+            <div className="rounded-[2px] border border-[#263039] bg-[#111820] px-3.5 py-2.5">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <span className="block text-sm font-semibold text-[#F5F2EA]">Animations</span>
+                  <span className="block font-mono text-[10px] text-[#9DA8B3]">
+                    Respects system reduced motion automatically
+                  </span>
+                </div>
+                <div
+                  role="radiogroup"
+                  aria-label="Animation mode"
+                  data-testid="settings-animation-mode"
+                  className="grid grid-cols-3 gap-1 rounded-[2px] border border-[#263039] bg-[#080B0D] p-0.5"
+                >
+                  {(['FULL', 'REDUCED', 'OFF'] as AnimationMode[]).map((mode) => {
+                    const currentMode: AnimationMode =
+                      draft.animationMode ?? (draft.animationEnabled ? 'FULL' : 'OFF');
+                    const active = currentMode === mode;
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        data-testid={`animation-mode-${mode}`}
+                        onClick={() =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            animationMode: mode,
+                            animationEnabled: mode !== 'OFF',
+                          }))
+                        }
+                        className={`min-h-[32px] rounded-[2px] px-2.5 font-mono text-[11px] font-bold tracking-wider uppercase transition-colors ${
+                          active
+                            ? 'bg-[#22D36B] text-[#06110A]'
+                            : 'text-[#9DA8B3] hover:bg-[#111820] hover:text-[#F5F2EA]'
+                        }`}
+                      >
+                        {mode}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <label className="flex min-h-[42px] cursor-pointer items-center justify-between rounded-[2px] border border-[#263039] bg-[#111820] px-3.5 py-2">
+              <div>
+                <span className="block text-sm font-semibold text-[#F5F2EA]">
+                  Skip Match Animations
+                </span>
+                <span className="block font-mono text-[10px] text-[#9DA8B3]">
+                  Instant toss, boundaries &amp; Impact Player for Quick Sim / fast play
+                </span>
+              </div>
               <input
                 type="checkbox"
-                checked={draft.animationEnabled}
+                data-testid="settings-skip-match-animations"
+                checked={Boolean(draft.skipMatchAnimations)}
                 onChange={(e) =>
-                  setDraft((prev) => ({ ...prev, animationEnabled: e.target.checked }))
+                  setDraft((prev) => ({
+                    ...prev,
+                    skipMatchAnimations: e.target.checked,
+                  }))
                 }
-                className="h-4 w-4 accent-[#D94E28]"
+                className="h-4 w-4 accent-[#22D36B]"
               />
             </label>
           </div>
         </div>
 
-        <div className="mt-5 flex flex-col-reverse gap-2.5 border-t-2 border-[#141619] pt-4 sm:flex-row sm:items-center sm:justify-between">
-          <button
-            type="button"
-            onClick={handleReset}
-            className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-[3px] border border-[#141619] bg-white px-4 py-2 text-xs font-bold tracking-wider text-[#141619] uppercase transition-colors hover:bg-[#EAE3D5]"
-          >
+        <div className="mt-5 flex flex-col-reverse gap-2.5 border-t border-[#263039] pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <GameButton variant="secondary" size="sm" onClick={handleReset}>
             <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
             <span>Reset Defaults</span>
-          </button>
+          </GameButton>
 
           <div className="flex flex-col gap-2 sm:flex-row">
             {structuralChanged ? (
-              <button
-                type="button"
-                onClick={() => onSave(draft, true)}
-                className="inline-flex min-h-[42px] items-center justify-center rounded-[3px] bg-[#D94E28] px-5 py-2 font-display text-base font-bold tracking-wider text-white uppercase transition-colors hover:bg-[#B83C1B]"
-              >
+              <GameButton variant="primary" size="md" onClick={() => onSave(draft, true)}>
                 Apply &amp; New Draft
-              </button>
+              </GameButton>
             ) : (
-              <button
-                type="button"
-                onClick={() => onSave(draft, false)}
-                className="inline-flex min-h-[42px] items-center justify-center rounded-[3px] bg-[#D94E28] px-5 py-2 font-display text-base font-bold tracking-wider text-white uppercase transition-colors hover:bg-[#B83C1B]"
-              >
+              <GameButton variant="primary" size="md" onClick={() => onSave(draft, false)}>
                 Save Settings
-              </button>
+              </GameButton>
             )}
           </div>
         </div>

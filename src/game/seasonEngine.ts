@@ -320,7 +320,7 @@ function makeFallbackCpuSquad(code: FranchiseCode, squadSize = 15): PlayerSeason
         franchise: code,
         role: group.role,
         matches: 10,
-        priceCr: 8,
+        priceCr: 0,
         ratingStatus: 'PROVISIONAL',
         rawBattingRating: group.role === 'BOWL' ? 35 : 70,
         rawBowlingRating: group.role === 'BAT' || group.role === 'WK' ? 24 : 72,
@@ -360,7 +360,8 @@ function makeFallbackCpuSquad(code: FranchiseCode, squadSize = 15): PlayerSeason
         ratingBand: resolved.ratingBand,
         form: 'NORMAL',
         attributes: resolved.attributes,
-        priceCr: 8,
+        salary: { salaryCr: null, verified: false },
+        priceCr: 0,
         ratingStatus: 'PROVISIONAL',
       });
       idx += 1;
@@ -420,7 +421,8 @@ export function buildSeasonTeams(
   userXi: PlayerSeasonRecord[],
   repository?: PlayerRepository | null,
   rng: () => number = Math.random,
-  customFranchise?: CustomFranchise | string | null
+  customFranchise?: CustomFranchise | string | null,
+  draftedAiSquads?: Partial<Record<FranchiseCode, PlayerSeasonRecord[]>>
 ): { teams: Record<SeasonTeamId, SeasonTeam>; teamOrder: SeasonTeamId[] } {
   const cf: CustomFranchise =
     typeof customFranchise === 'string'
@@ -481,6 +483,58 @@ export function buildSeasonTeams(
     const homeVenue = TEAM_VENUES[code];
     const homePitch = getPitchConditionForVenue(homeVenue, rng);
     const teamSeed = Math.floor(rng() * 0xfffffff) + (cIdx + 1) * 97;
+
+    const preDrafted = draftedAiSquads?.[code];
+    if (preDrafted && preDrafted.length >= 11) {
+      const squad15: PlayerSeasonRecord[] = [];
+      const localCanonicals = new Set<string>();
+      let osCount = 0;
+      for (const p of preDrafted) {
+        if (squad15.length >= SQUAD_RULES.SQUAD_SIZE) break;
+        const cid = getCanonicalPlayerId(p);
+        if (!cid || claimedCanonicals.has(cid) || localCanonicals.has(cid)) continue;
+        if (p.isOverseas === true && osCount >= SQUAD_RULES.MAX_OVERSEAS_SQUAD) continue;
+        squad15.push(p);
+        localCanonicals.add(cid);
+        claimedCanonicals.add(cid);
+        if (p.isOverseas === true) osCount += 1;
+      }
+
+      if (squad15.length >= 11) {
+        const matchSel = selectMatchXIAndBench(squad15, {
+          pitch: homePitch,
+          seed: teamSeed,
+        });
+        let cpuPlayers = matchSel.startingXI;
+        if (cpuPlayers.length < 11) {
+          const xi = autoSelectPlayingXI(squad15, 4);
+          const byId = new Map(squad15.map((p) => [p.playerId, p]));
+          cpuPlayers = xi.playingXiIds
+            .map((id) => byId.get(id))
+            .filter((p): p is PlayerSeasonRecord => Boolean(p));
+        }
+        const xiSet = new Set(cpuPlayers.map((p) => getCanonicalPlayerId(p)));
+        const impactBench = squad15
+          .filter((p) => !xiSet.has(getCanonicalPlayerId(p)))
+          .slice(0, SQUAD_RULES.IMPACT_BENCH_SIZE);
+
+        teams[code] = {
+          id: code,
+          code,
+          name: meta.name,
+          shortName: meta.shortName,
+          primaryColor: meta.primaryColor,
+          homeVenue,
+          homePitch,
+          isUser: false,
+          sourceSeason: squad15[0]?.season,
+          players: cpuPlayers,
+          squad: squad15,
+          impactBench,
+        };
+        continue;
+      }
+    }
 
     let chosenSeason: number | undefined;
     const rawCandidates: PlayerSeasonRecord[] = [];
@@ -610,7 +664,7 @@ function makeUniqueReplacementPlayer(
     franchise: code,
     role,
     matches: 10,
-    priceCr: 6,
+    priceCr: 0,
     ratingStatus: 'PROVISIONAL',
     rawBattingRating: role === 'BOWL' ? 38 : 66,
     rawBowlingRating: role === 'BAT' || role === 'WK' ? 28 : 66,
@@ -644,7 +698,8 @@ function makeUniqueReplacementPlayer(
     ratingBand: resolved.ratingBand,
     form: 'NORMAL',
     attributes: resolved.attributes,
-    priceCr: 6,
+    salary: { salaryCr: null, verified: false },
+    priceCr: 0,
     ratingStatus: 'PROVISIONAL',
   };
 }
@@ -1169,9 +1224,10 @@ export function createInitialSeasonState(
   seasonNumber: number = 1,
   rng: () => number = Math.random,
   userBench: PlayerSeasonRecord[] = [],
-  customFranchise?: CustomFranchise | string | null
+  customFranchise?: CustomFranchise | string | null,
+  draftedAiSquads?: Partial<Record<FranchiseCode, PlayerSeasonRecord[]>>
 ): SeasonState {
-  const raw = buildSeasonTeams(userXi, repository, rng, customFranchise);
+  const raw = buildSeasonTeams(userXi, repository, rng, customFranchise, draftedAiSquads);
   const { teams } = validateLeagueOwnership(raw.teams, userBench, repository);
   const teamOrder = raw.teamOrder;
   const fixtures = generateLeagueSchedule(teams, rng);

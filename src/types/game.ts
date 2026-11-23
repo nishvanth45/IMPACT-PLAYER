@@ -1,6 +1,41 @@
-export type PlayerRole = 'BAT' | 'BOWL' | 'AR' | 'WK' | 'UNKNOWN';
+export type CanonicalRole = 'BAT' | 'WK' | 'AR' | 'BOWL';
+export type PlayerRole = CanonicalRole | 'UNKNOWN';
+export type BowlingType =
+  | 'Pace'
+  | 'Medium Pace'
+  | 'Leg Spin'
+  | 'Off Spin'
+  | 'Left-arm Spin'
+  | 'Unknown';
+export type DataQualityStatus = 'VERIFIED' | 'INFERRED' | 'NEEDS_REVIEW';
 export type PlayerOriginType = 'Domestic' | 'Overseas' | 'Unknown';
 export type RatingStatus = 'FINAL' | 'PROVISIONAL';
+
+export interface CanonicalPlayerRoleNationality {
+  playerId: string;
+  primaryRole: CanonicalRole | null;
+  roleStatus: DataQualityStatus;
+  nationality: string | null;
+  isOverseas: boolean | null;
+  nationalityStatus: DataQualityStatus;
+  bowlingType: BowlingType;
+  seasonRoles?: Record<string, CanonicalRole>;
+}
+
+export interface RoleNationalityValidationReport {
+  totalCanonicalPlayers: number;
+  roleVerified: number;
+  roleInferred: number;
+  roleNeedsReview: number;
+  nationalityVerified: number;
+  nationalityInferred: number;
+  nationalityNeedsReview: number;
+  indianPlayers: number;
+  overseasPlayers: number;
+  unknownOriginPlayers: number;
+  missingNationality: number;
+  missingRole: number;
+}
 export type RatingBand =
   | 'Historic'
   | 'Elite'
@@ -77,22 +112,112 @@ export interface FranchiseMeta {
   activeSeasons: number[];
 }
 
+export type SalarySource = 'REAL_CONTRACT' | 'GAME_VALUE' | 'REPORTED' | 'UNAVAILABLE';
+
+export interface IplDatabasePlayerRatings {
+  bat: number;
+  bowl: number;
+  impact?: number;
+  imp?: number;
+  overall?: number;
+  ovr?: number;
+}
+
+export interface IplDatabasePlayerSalary {
+  salaryCr: number | null;
+  gamePriceCr?: number | null;
+  type?: string;
+  status?: string;
+  verified?: boolean;
+  sourceIds?: string[];
+  valueBasis?: string | null;
+}
+
+export interface IplDatabaseRatingQuality {
+  status?: string;
+  battingReliability?: number;
+  bowlingReliability?: number;
+}
+
+export interface IplDatabasePlayerStats {
+  batting?: {
+    innings?: number;
+    not_outs?: number;
+    runs_scored?: number;
+    balls_faced?: number;
+    batting_average?: number;
+    batting_strike_rate?: number;
+    highest_score?: number;
+    hundreds?: number;
+    fifties?: number;
+    fours?: number;
+    sixes?: number;
+  } | null;
+  bowling?: {
+    innings?: number;
+    balls_bowled?: number;
+    total_runs_conceded?: number;
+    total_wickets?: number;
+    economy_rate?: number;
+    bowling_average?: number;
+    bowling_strike_rate?: number;
+    best_wickets?: number;
+    three_wicket_hauls?: number;
+    four_wicket_hauls?: number;
+    five_wicket_hauls?: number;
+  } | null;
+}
+
 export interface IplDatabasePlayerRaw {
-  id: string;
-  name: string;
+  id?: string;
+  playerId?: string;
+  sourcePlayerId?: string;
+  name?: string;
+  playerName?: string;
+  aliases?: string[];
+  cricsheetId?: string | null;
+  cricsheetName?: string | null;
+  cricsheetUniqueName?: string | null;
+  identityStatus?: string;
   franchise: string;
   teamName?: string;
   season: number;
-  role: string;
-  playerType: string;
-  isOverseas: boolean | null;
-  matches: number;
-  battingRating: number;
-  bowlingRating: number;
+  role?: string | null;
+  primaryRole?: CanonicalRole | null;
+  seasonRole?: CanonicalRole | null;
+  roleStatus?: DataQualityStatus;
+  nationality?: string | null;
+  nationalityStatus?: DataQualityStatus;
+  playerType?: string | null;
+  isOverseas?: boolean | null;
+  battingStyle?: string;
+  bowlingStyle?: string;
+  bowlingType?: BowlingType;
+  matches?: number;
+  runs?: number;
+  battingAverage?: number;
+  strikeRate?: number;
+  wickets?: number;
+  economy?: number;
+  ratings?: IplDatabasePlayerRatings | null;
+  bat?: number | null;
+  bowl?: number | null;
+  imp?: number | null;
+  ovr?: number | null;
+  salary?: IplDatabasePlayerSalary | null;
+  salaryCr?: number | null;
+  salaryVerified?: boolean;
+  gamePriceCr?: number | null;
+  ratingQuality?: IplDatabaseRatingQuality | null;
+  stats?: IplDatabasePlayerStats | null;
+  dataIncomplete?: boolean;
+  // Legacy compatibility fields (never prioritized over nested objects)
+  battingRating?: number;
+  bowlingRating?: number;
   impactRating?: number;
-  overallRating: number;
-  priceCr: number;
-  ratingStatus: RatingStatus;
+  overallRating?: number;
+  priceCr?: number | null;
+  ratingStatus?: string;
   attributes?: PlayerDetailedAttributes;
 }
 
@@ -108,8 +233,12 @@ export interface IplDatabaseJson {
     schemaVersion?: string;
     seasonRange?: [number, number];
     playerSeasonRecords?: number;
+    uniqueCanonicalPlayers?: number;
+    verifiedContracts?: number;
+    statsDerivedRatings?: number;
+    incompleteRatings?: number;
     unresolvedMetadata?: number;
-    ratingStatus?: RatingStatus;
+    ratingStatus?: string;
     note?: string;
   };
   gameDefaults?: {
@@ -119,6 +248,7 @@ export interface IplDatabaseJson {
     playingXI?: number;
     maxOverseasXI?: number;
   };
+  canonicalPlayers?: Record<string, CanonicalPlayerRoleNationality>;
   seasons: Record<string, Record<string, IplDatabaseTeamRaw>>;
 }
 
@@ -127,21 +257,57 @@ export interface PlayerSeasonRecord {
   name: string;
   playerId: string;
   playerName: string;
+  aliases?: string[];
+  cricsheetId?: string | null;
+  identityStatus?: string;
   season: number;
   franchise: FranchiseCode;
   teamName: string;
-  nationality: string;
+  nationality: string | null;
+  nationalityStatus?: DataQualityStatus;
   playerType: PlayerOriginType;
   isOverseas: boolean | null;
   role: PlayerRole;
+  primaryRole?: CanonicalRole | null;
+  seasonRole?: CanonicalRole | null;
+  roleStatus?: DataQualityStatus;
   battingStyle: string;
   bowlingStyle: string;
+  bowlingType?: BowlingType;
   matches: number;
   runs: number;
   battingAverage: number;
   strikeRate: number;
   wickets: number;
   economy: number;
+  hasRatings?: boolean;
+  isIncomplete?: boolean;
+  ratings?: {
+    bat: number;
+    bowl: number;
+    impact: number;
+    overall: number;
+  } | null;
+  salaryCr?: number | null;
+  gamePriceCr?: number | null;
+  salarySource?: SalarySource;
+  salaryType?: string;
+  salaryVerified?: boolean;
+  salaryStatus?: string;
+  salary?: {
+    salaryCr: number | null;
+    gamePriceCr?: number | null;
+    verified: boolean;
+    type?: string;
+    status?: string;
+    sourceIds?: string[];
+    valueBasis?: string | null;
+  };
+  ratingQuality?: {
+    status: string;
+    battingReliability?: number;
+    bowlingReliability?: number;
+  };
   battingRating: number;
   bowlingRating: number;
   impactRating: number;
@@ -153,6 +319,26 @@ export interface PlayerSeasonRecord {
   ratingStatus: RatingStatus;
   isRetained?: boolean;
   retentionSlot?: number;
+}
+
+export interface CanonicalPlayerSummary {
+  playerId: string;
+  playerName: string;
+  aliases: string[];
+  role: PlayerRole;
+  primaryRole?: CanonicalRole | null;
+  roleStatus?: DataQualityStatus;
+  bowlingStyle: string;
+  bowlingType?: BowlingType;
+  nationality?: string | null;
+  nationalityStatus?: DataQualityStatus;
+  isOverseas: boolean | null;
+  hasRatings: boolean;
+  bestOvr: number;
+  bestImp: number;
+  bestSeasonKey: string;
+  bestRecord: PlayerSeasonRecord;
+  seasons: PlayerSeasonRecord[];
 }
 
 export interface RetentionSlot {
@@ -174,6 +360,8 @@ export interface SpinResult {
   pool: PlayerSeasonRecord[];
 }
 
+export type AnimationMode = 'FULL' | 'REDUCED' | 'OFF';
+
 export interface DraftSettings {
   franchiseName: string;
   startingPurseCr: number;
@@ -185,6 +373,8 @@ export interface DraftSettings {
   difficulty: 'Casual' | 'Standard' | 'Hard';
   soundEnabled: boolean;
   animationEnabled: boolean;
+  animationMode?: AnimationMode;
+  skipMatchAnimations?: boolean;
   simSpeed: 'Normal' | 'Fast';
 }
 
@@ -197,6 +387,55 @@ export interface CustomFranchise {
   secondaryColor: string;
 }
 
+export interface LiveDraftTeamState {
+  teamId: SeasonTeamId;
+  code: string;
+  name: string;
+  primaryColor: string;
+  secondaryColor?: string;
+  isUser: boolean;
+  squad: PlayerSeasonRecord[];
+  remainingPurseCr: number;
+  overseasCount: number;
+}
+
+export interface DraftTransaction {
+  pickNumber: number;
+  roundNumber: number;
+  teamId: SeasonTeamId;
+  teamCode: string;
+  teamName: string;
+  playerId: string;
+  canonicalId: string;
+  playerName: string;
+  role: PlayerRole;
+  sourceFranchise: FranchiseCode;
+  sourceSeason: number;
+  salaryCr: number | null;
+  isRetained?: boolean;
+}
+
+export interface LeagueDraftValidation {
+  isValid: boolean;
+  errors: string[];
+  totalTeams: number;
+  totalRosterSlots: number;
+  uniqueCanonicalPlayers: number;
+  duplicateCanonicalIds: string[];
+}
+
+export interface LiveLeagueDraftState {
+  teams: Record<SeasonTeamId, LiveDraftTeamState>;
+  teamOrder: SeasonTeamId[];
+  ownedPlayerIds: string[];
+  playerOwners: Record<string, SeasonTeamId>;
+  feed: DraftTransaction[];
+  lastRoundTransactions: DraftTransaction[];
+  totalPicks: number;
+  roundNumber: number;
+  validation: LeagueDraftValidation | null;
+}
+
 export interface DraftState {
   settings: DraftSettings;
   customFranchise: CustomFranchise | null;
@@ -206,10 +445,11 @@ export interface DraftState {
   usedComboKeys: string[];
   currentSpin: SpinResult | null;
   retention: RetentionState;
+  liveLeague?: LiveLeagueDraftState | null;
   status: 'READY_TO_SPIN' | 'PICKING_PLAYER' | 'COMPLETED';
 }
 
-export type ScreenTab = 'HOME' | 'DRAFT' | 'SQUAD' | 'PLAYING_XI' | 'SEASON';
+export type ScreenTab = 'HOME' | 'DRAFT' | 'SQUAD' | 'FIXTURES' | 'STANDINGS' | 'STATS';
 
 export type BowlerType = 'PACE' | 'SPIN' | 'NONE';
 
@@ -256,6 +496,8 @@ export interface SelectionCheck {
   allowed: boolean;
   reason?: SelectionBlockReason;
   label?: string;
+  ownerTeamId?: SeasonTeamId;
+  ownerTeamCode?: string;
 }
 
 export type SeasonTeamId = 'YOU' | FranchiseCode;

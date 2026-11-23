@@ -1,13 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import {
-  CheckCircle2,
-  Info,
-  Lock,
-  Search,
-  Sparkles,
-  Trash2,
-  X,
-} from 'lucide-react';
+import { Info, Lock, Search, Trash2, X } from 'lucide-react';
 import { FRANCHISES } from '../data/franchises';
 import type { PlayerRepository } from '../data/playerRepository';
 import { formatCr } from '../game/draftEngine';
@@ -17,11 +9,8 @@ import {
   getPlayerImpactScore,
   getRetentionSummary,
 } from '../game/retentionEngine';
-import type {
-  DraftState,
-  PlayerRole,
-  PlayerSeasonRecord,
-} from '../types/game';
+import type { DraftState, PlayerRole, PlayerSeasonRecord } from '../types/game';
+import { AnimatedNumber, useAnimationPreferences } from './MotionPrimitives';
 import { RoleBadge } from './RoleBadge';
 
 interface RetentionScreenProps {
@@ -37,7 +26,7 @@ interface RetentionScreenProps {
 type RoleFilter = 'ALL' | Exclude<PlayerRole, 'UNKNOWN'>;
 type OriginFilter = 'ALL' | 'INDIAN' | 'OVERSEAS';
 
-interface UniquePlayerGroup {
+interface CanonicalPlayerGroup {
   playerId: string;
   playerName: string;
   role: PlayerRole;
@@ -45,7 +34,12 @@ interface UniquePlayerGroup {
   isOverseas: boolean | null;
   bestOvr: number;
   bestImp: number;
+  bestSeasonKey: string;
   seasons: PlayerSeasonRecord[];
+}
+
+function makeSeasonKey(rec: PlayerSeasonRecord): string {
+  return `${rec.franchise}-${rec.season}`;
 }
 
 export function RetentionScreen({
@@ -61,8 +55,11 @@ export function RetentionScreen({
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('ALL');
   const [originFilter, setOriginFilter] = useState<OriginFilter>('ALL');
-  const [selectedUniqueId, setSelectedUniqueId] = useState<string | null>(null);
+  // Per-canonical-player selected season key (defaults to peak OVR season)
+  const [seasonChoiceByPlayer, setSeasonChoiceByPlayer] = useState<Record<string, string>>({});
+  const [recentlyRetainedId, setRecentlyRetainedId] = useState<string | null>(null);
 
+  const animPrefs = useAnimationPreferences(state.settings);
   const summary = getRetentionSummary(state);
   const targetCount = state.retention.targetCount;
   const slots = state.retention.slots;
@@ -78,83 +75,73 @@ export function RetentionScreen({
     }
   }, [slots, activeSlotIndex]);
 
-  const allRecords = useMemo(() => repository.getAllPlayerSeasonRecords(), [repository]);
+  const indexedCanonicals = useMemo(() => repository.getUniqueCanonicalPlayers(), [repository]);
 
-  // Group records by unique player first (filtered by season bounds, role, origin, search)
-  const uniquePlayers = useMemo(() => {
+  // Each canonical player appears ONLY ONCE in search (using pre-indexed repository map + aliases)
+  const canonicalPlayers = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    const groups = new Map<string, UniquePlayerGroup>();
+    const minSeason = Math.min(state.settings.seasonStart, state.settings.seasonEnd);
+    const maxSeason = Math.max(state.settings.seasonStart, state.settings.seasonEnd);
+    const list: CanonicalPlayerGroup[] = [];
 
-    for (const rec of allRecords) {
-      if (
-        rec.season < state.settings.seasonStart ||
-        rec.season > state.settings.seasonEnd
-      ) {
-        continue;
-      }
-      if (roleFilter !== 'ALL' && rec.role !== roleFilter) continue;
-      if (originFilter === 'INDIAN' && rec.isOverseas !== false) continue;
-      if (originFilter === 'OVERSEAS' && rec.isOverseas !== true) continue;
+    for (const summary of indexedCanonicals) {
+      const seasonsInRange = summary.seasons.filter((rec) => {
+        if (rec.season < minSeason || rec.season > maxSeason) return false;
+        if (roleFilter !== 'ALL' && rec.role !== roleFilter) return false;
+        if (originFilter === 'INDIAN' && rec.isOverseas !== false) return false;
+        if (originFilter === 'OVERSEAS' && rec.isOverseas !== true) return false;
+        return true;
+      });
 
-      const key = rec.playerId;
-      const name = rec.name || rec.playerName;
+      if (seasonsInRange.length === 0) continue;
+
       if (q) {
-        const franchiseMeta = FRANCHISES[rec.franchise];
-        const matchesName = name.toLowerCase().includes(q);
-        const matchesTeam =
-          rec.franchise.toLowerCase().includes(q) ||
-          franchiseMeta.name.toLowerCase().includes(q);
-        const matchesSeason = String(rec.season).includes(q);
-        if (!matchesName && !matchesTeam && !matchesSeason) continue;
-      }
-
-      const existing = groups.get(key);
-      const imp = getPlayerImpactScore(rec);
-      if (!existing) {
-        groups.set(key, {
-          playerId: key,
-          playerName: name,
-          role: rec.role,
-          bowlingStyle: rec.bowlingStyle,
-          isOverseas: rec.isOverseas,
-          bestOvr: rec.overallRating,
-          bestImp: imp,
-          seasons: [rec],
+        const matchesName = summary.playerName.toLowerCase().includes(q);
+        const matchesAlias = summary.aliases.some((alias) => alias.toLowerCase().includes(q));
+        const matchesSeasonOrTeam = seasonsInRange.some((rec) => {
+          const franchiseMeta = FRANCHISES[rec.franchise];
+          return (
+            rec.franchise.toLowerCase().includes(q) ||
+            franchiseMeta.name.toLowerCase().includes(q) ||
+            String(rec.season).includes(q)
+          );
         });
-      } else {
-        existing.seasons.push(rec);
-        if (rec.overallRating > existing.bestOvr) {
-          existing.bestOvr = rec.overallRating;
-          existing.role = rec.role;
-          existing.bowlingStyle = rec.bowlingStyle;
-        }
-        if (imp > existing.bestImp) existing.bestImp = imp;
+        if (!matchesName && !matchesAlias && !matchesSeasonOrTeam) continue;
       }
+
+      const best = seasonsInRange[0];
+      list.push({
+        playerId: summary.playerId,
+        playerName: summary.playerName,
+        role: best.role,
+        bowlingStyle: best.bowlingStyle,
+        isOverseas: best.isOverseas,
+        bestOvr: best.overallRating,
+        bestImp: getPlayerImpactScore(best),
+        bestSeasonKey: makeSeasonKey(best),
+        seasons: seasonsInRange,
+      });
     }
 
-    const list = Array.from(groups.values());
-    for (const g of list) {
-      g.seasons.sort((a, b) => b.season - a.season || b.overallRating - a.overallRating);
-    }
-    list.sort((a, b) => b.bestOvr - a.bestOvr || b.bestImp - a.bestImp || a.playerName.localeCompare(b.playerName));
     return list;
-  }, [allRecords, state.settings.seasonStart, state.settings.seasonEnd, roleFilter, originFilter, searchQuery]);
-
-  // Keep a valid selected player in sync when results change
-  const activeUniquePlayer = useMemo(() => {
-    if (uniquePlayers.length === 0) return null;
-    if (selectedUniqueId) {
-      const found = uniquePlayers.find((u) => u.playerId === selectedUniqueId);
-      if (found) return found;
-    }
-    return uniquePlayers[0];
-  }, [uniquePlayers, selectedUniqueId]);
+  }, [
+    indexedCanonicals,
+    state.settings.seasonStart,
+    state.settings.seasonEnd,
+    roleFilter,
+    originFilter,
+    searchQuery,
+  ]);
 
   const activeSlot = slots[activeSlotIndex] ?? null;
 
   const handleAssign = (player: PlayerSeasonRecord) => {
     if (!activeSlot) return;
     onAssignRetention(player, activeSlotIndex);
+    setRecentlyRetainedId(player.playerId);
+    window.setTimeout(() => {
+      setRecentlyRetainedId((prev) => (prev === player.playerId ? null : prev));
+    }, 520);
     const nextEmptyIndex = slots.findIndex(
       (s, idx) => idx !== activeSlotIndex && s.player === null
     );
@@ -165,156 +152,566 @@ export function RetentionScreen({
 
   return (
     <div data-testid="retention-screen" className="mt-3 space-y-3">
-      {/* Step 1: Retention Count Prompt */}
-      <div className="border-2 border-[#141619] bg-[#FAF8F3] p-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      {/* RETENTION ROOM HEADER & COUNT SELECTOR */}
+      <div className="border border-[#263039] bg-[#0E1318]">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#263039] bg-[#111820] px-4 py-3 text-[#F5F2EA]">
           <div>
-            <div className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold tracking-widest text-[#D94E28] uppercase">
-              <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-              <span>Pre-Auction Retention Phase</span>
-            </div>
-            <h1 className="mt-0.5 font-display text-2xl font-extrabold tracking-wide text-[#141619] uppercase sm:text-3xl">
-              HOW MANY PLAYERS DO YOU WANT TO RETAIN?
+            <h1 className="font-display text-2xl font-extrabold tracking-wide uppercase sm:text-3xl">
+              RETENTION ROOM
             </h1>
-            <p className="mt-0.5 text-xs text-[#4A4E54]">
-              Lock 0–4 historical player-seasons at fixed prices before Spin Draft. Counts toward{' '}
-              {state.settings.squadSize}-man squad and max {state.settings.overseasSquadLimit}{' '}
-              overseas.
+            <p className="font-mono text-[10.5px] text-[#9DA8B3]">
+              Select 0–4 franchise retentions before entering the Spin Draft.
             </p>
           </div>
 
-          <div className="shrink-0 border border-[#141619] bg-[#0D1B2A] px-3 py-1.5 text-white">
-            <div className="font-mono text-[9.5px] font-bold tracking-wider text-slate-300 uppercase">
-              Fixed Retention Slabs
+          <dl className="flex flex-wrap items-center gap-4 font-mono text-xs tabular-nums">
+            <div>
+              <dt className="text-[9.5px] text-[#9DA8B3] uppercase">Starting Purse</dt>
+              <dd className="font-extrabold text-[#F5F2EA]">
+                {formatCr(state.settings.startingPurseCr)}
+              </dd>
             </div>
-            <div className="font-mono text-xs font-bold text-[#F59E0B] tabular-nums">
-              R1 ₹18 · R2 ₹15 · R3 ₹12 · R4 ₹10 Cr
+            <div>
+              <dt className="text-[9.5px] text-[#9DA8B3] uppercase">Retentions</dt>
+              <dd data-testid="summary-retained-count" className="font-extrabold text-[#F5B942]">
+                <AnimatedNumber
+                  value={summary.retainedCount}
+                  enabled={animPrefs.isFull}
+                  format={(v) => String(Math.round(v))}
+                />
+                /{targetCount ?? 0}
+              </dd>
             </div>
-          </div>
+            <div>
+              <dt className="text-[9.5px] text-[#9DA8B3] uppercase">Projected Purse</dt>
+              <dd data-testid="summary-remaining-purse" className="font-extrabold text-[#22D36B]">
+                <AnimatedNumber
+                  value={summary.remainingPurseCr}
+                  enabled={animPrefs.isFull}
+                  format={(v) => formatCr(Math.max(0, v))}
+                />
+              </dd>
+            </div>
+          </dl>
         </div>
 
-        <div
-          className="mt-3 grid grid-cols-5 gap-2"
-          role="group"
-          aria-label="Number of players to retain"
-        >
-          {([0, 1, 2, 3, 4] as const).map((count) => {
-            const active = targetCount === count;
-            const totalCost = RETENTION_SLOT_COSTS.slice(0, count).reduce((a, b) => a + b, 0);
-            const remainingCr = state.settings.startingPurseCr - totalCost;
-            const toDraft = Math.max(0, state.settings.squadSize - count);
-
-            return (
-              <button
-                key={count}
-                type="button"
-                data-testid={`retention-count-${count}`}
-                aria-pressed={active}
-                onClick={() => onSetRetentionCount(count)}
-                className={`flex min-h-[58px] flex-col items-center justify-center rounded-[3px] border-2 px-2 py-1.5 text-center transition-colors ${
-                  active
-                    ? 'border-[#141619] bg-[#D94E28] text-white shadow-[2px_2px_0px_#141619]'
-                    : 'border-[#141619]/35 bg-white text-[#141619] hover:border-[#141619]'
-                }`}
-              >
-                <span className="font-display text-2xl font-extrabold leading-none tabular-nums">
-                  {count}
-                </span>
-                <span
-                  className={`mt-0.5 font-mono text-[10px] font-bold tabular-nums ${
-                    active ? 'text-white' : 'text-[#B45309]'
-                  }`}
-                >
-                  ₹{totalCost} Cr
-                </span>
-                <span
-                  className={`hidden font-mono text-[9.5px] tabular-nums sm:block ${
-                    active ? 'text-white/90' : 'text-[#4A4E54]'
-                  }`}
-                >
-                  ₹{remainingCr} · {toDraft} Spin
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Step 2: Retention Slots (when 1..4 chosen) */}
-      {targetCount !== null && targetCount > 0 && (
-        <div className="border border-[#141619] bg-[#FAF8F3] p-3.5">
+        {/* Retention Count Options 0 | 1 | 2 | 3 | 4 */}
+        <div className="p-3.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-display text-lg font-extrabold tracking-wide text-[#141619] uppercase">
-              Retention Slots ({summary.retainedCount}/{targetCount} Filled)
-            </h2>
-            <span className="font-mono text-[11px] text-[#4A4E54]">
-              Select a slot, search a player below, then pick their historical season.
+            <span className="font-mono text-[10.5px] font-bold tracking-wider text-[#9DA8B3] uppercase">
+              Retention Count
+            </span>
+            <span className="font-mono text-[10.5px] font-bold text-[#F5B942] tabular-nums">
+              Slot Slabs: R1 ₹18 Cr · R2 ₹15 Cr · R3 ₹12 Cr · R4 ₹10 Cr
             </span>
           </div>
 
-          <div className="mt-2.5 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {slots.map((slot, idx) => {
-              const isSelectedSlot = idx === activeSlotIndex;
-              const player = slot.player;
+          <div
+            className="mt-2 grid grid-cols-5 gap-2"
+            role="group"
+            aria-label="Number of players to retain"
+          >
+            {([0, 1, 2, 3, 4] as const).map((count) => {
+              const active = targetCount === count;
+              const totalCost = RETENTION_SLOT_COSTS.slice(0, count).reduce((a, b) => a + b, 0);
+              const remainingCr = state.settings.startingPurseCr - totalCost;
 
               return (
-                <div
-                  key={slot.slotNumber}
-                  data-testid={`retention-slot-${slot.slotNumber}`}
-                  onClick={() => setActiveSlotIndex(idx)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      setActiveSlotIndex(idx);
-                    }
-                  }}
-                  aria-label={`Retention Slot ${slot.slotNumber}, ₹${slot.costCr} Cr`}
-                  className={`flex min-h-[86px] cursor-pointer flex-col justify-between rounded-[3px] border-2 p-2.5 text-left transition-colors ${
-                    isSelectedSlot
-                      ? 'border-[#D94E28] bg-white shadow-[2px_2px_0px_#D94E28]'
-                      : player
-                        ? 'border-[#141619] bg-white'
-                        : 'border-dashed border-[#141619]/35 bg-[#F5F1E8] hover:border-[#141619]'
+                <button
+                  key={count}
+                  type="button"
+                  data-testid={`retention-count-${count}`}
+                  aria-pressed={active}
+                  onClick={() => onSetRetentionCount(count)}
+                  className={`flex min-h-[54px] flex-col items-center justify-center rounded-[2px] border px-2 py-1.5 text-center transition-colors ${
+                    active
+                      ? 'border-[#22D36B] bg-[#0A2014] text-[#22D36B]'
+                      : 'border-[#263039] bg-[#111820] text-[#F5F2EA] hover:border-[#22D36B]/50'
                   }`}
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-mono text-[10px] font-bold text-[#4A4E54]">
-                        SLOT {slot.slotNumber}
-                      </span>
-                      {player && (
-                        <span className="rounded-[2px] bg-[#6D28D9] px-1 py-0.2 font-mono text-[9px] font-extrabold text-white">
-                          RET
-                        </span>
-                      )}
-                    </div>
-                    <span className="font-mono text-xs font-extrabold text-[#B45309] tabular-nums">
-                      ₹{slot.costCr} Cr
-                    </span>
-                  </div>
+                  <span className="font-display text-2xl font-extrabold leading-none tabular-nums">
+                    {count}
+                  </span>
+                  <span
+                    className={`mt-0.5 font-mono text-[10px] font-bold tabular-nums ${
+                      active ? 'text-[#22D36B]' : 'text-[#F5B942]'
+                    }`}
+                  >
+                    {count === 0 ? '₹0 Cr' : `₹${totalCost} Cr`}
+                  </span>
+                  <span
+                    className={`hidden font-mono text-[9px] tabular-nums sm:block ${
+                      active ? 'text-[#22D36B]/85' : 'text-[#9DA8B3]'
+                    }`}
+                  >
+                    Left ₹{remainingCr}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
 
-                  {player ? (
-                    <div className="mt-1.5 flex items-end justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-bold text-[#141619]">
-                          {player.playerName}
-                        </div>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-[10px] font-semibold text-[#4A4E54] tabular-nums">
-                          <span>
-                            {player.franchise} • {player.season}
-                          </span>
-                          <span>·</span>
-                          <span className="font-bold text-[#141619]">OVR {player.overallRating}</span>
-                          {player.isOverseas && (
-                            <span className="rounded-[2px] bg-[#FEF3C7] px-1 text-[#B45309]">
-                              OS
+      {/* Zero-Retention Quick Lock Bar */}
+      {targetCount === 0 && (
+        <div
+          data-testid="retention-summary"
+          className="flex flex-wrap items-center justify-between gap-3 border border-[#263039] bg-[#0E1318] px-4 py-3 text-[#F5F2EA]"
+        >
+          <div>
+            <div className="font-display text-lg font-extrabold tracking-wide uppercase">
+              0 RETENTIONS SELECTED
+            </div>
+            <div className="font-mono text-xs text-[#9DA8B3] tabular-nums">
+              Full {formatCr(state.settings.startingPurseCr)} purse available for 15 Spin Draft picks.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onLockRetentions}
+            data-testid="lock-retentions-btn"
+            className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-[2px] border border-[#22D36B] bg-[#22D36B] px-5 py-2 font-display text-lg font-extrabold tracking-wider text-[#06110A] uppercase hover:bg-[#3CE282] whitespace-nowrap"
+          >
+            <Lock className="h-4 w-4" aria-hidden="true" />
+            <span>LOCK RETENTIONS</span>
+          </button>
+        </div>
+      )}
+
+      {/* MAIN RETENTION WORKSPACE: Left = Single-Row Canonical Search, Right = YOUR RETENTIONS */}
+      {targetCount !== null && targetCount > 0 && activeSlot && (
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.45fr_0.75fr] lg:items-start">
+          {/* LEFT: Canonical Player Search Table */}
+          <div className="border border-[#263039] bg-[#0E1318]">
+            {/* Search & Filters */}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#263039] bg-[#111820] p-2.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <div className="relative min-w-[180px] flex-1 sm:max-w-[230px]">
+                  <Search
+                    className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#9DA8B3]"
+                    aria-hidden="true"
+                  />
+                  <input
+                    type="search"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search player..."
+                    aria-label="Search retention players"
+                    className="h-8 w-full rounded-[2px] border border-[#263039] bg-[#080B0D] pl-8 pr-7 text-xs font-medium text-[#F5F2EA] placeholder:text-[#667380] focus:border-[#22D36B] focus:outline-none"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      aria-label="Clear retention search"
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-[#9DA8B3] hover:text-[#F5F2EA]"
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
+
+                <div
+                  className="flex items-center gap-0.5 rounded-[2px] border border-[#263039] bg-[#080B0D] p-0.5"
+                  role="group"
+                  aria-label="Filter retention by role"
+                >
+                  {(['ALL', 'BAT', 'WK', 'AR', 'BOWL'] as RoleFilter[]).map((role) => (
+                    <button
+                      key={role}
+                      type="button"
+                      onClick={() => setRoleFilter(role)}
+                      aria-pressed={roleFilter === role}
+                      className={`h-6 rounded-[2px] px-2 font-mono text-[10px] font-bold transition-colors ${
+                        roleFilter === role
+                          ? 'bg-[#22D36B] text-[#06110A]'
+                          : 'text-[#9DA8B3] hover:bg-[#111820] hover:text-[#F5F2EA]'
+                      }`}
+                    >
+                      {role}
+                    </button>
+                  ))}
+                </div>
+
+                <div
+                  className="flex items-center gap-0.5 rounded-[2px] border border-[#263039] bg-[#080B0D] p-0.5"
+                  role="group"
+                  aria-label="Filter retention by nationality"
+                >
+                  {(
+                    [
+                      { id: 'ALL', label: 'ALL' },
+                      { id: 'INDIAN', label: 'IND' },
+                      { id: 'OVERSEAS', label: 'OS' },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setOriginFilter(opt.id)}
+                      aria-pressed={originFilter === opt.id}
+                      className={`h-6 rounded-[2px] px-2 font-mono text-[10px] font-bold transition-colors ${
+                        originFilter === opt.id
+                          ? 'bg-[#22D36B] text-[#06110A]'
+                          : 'text-[#9DA8B3] hover:bg-[#111820] hover:text-[#F5F2EA]'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <span className="font-mono text-[10.5px] font-semibold text-[#9DA8B3] tabular-nums">
+                {canonicalPlayers.length} players · Target: Slot {activeSlot.slotNumber} (₹
+                {activeSlot.costCr} Cr)
+              </span>
+            </div>
+
+            {/* Compact Single-Canonical-Player Rows */}
+            <div
+              data-testid="retention-player-list"
+              className="max-h-[460px] overflow-y-auto"
+            >
+              {/* Desktop Header */}
+              <div className="sticky top-0 z-10 hidden grid-cols-[54px_minmax(150px,2fr)_44px_38px_38px_38px_40px_84px] items-center gap-2 border-b border-[#263039] bg-[#111820] px-3 py-1.5 font-mono text-[10px] font-bold tracking-wider text-[#9DA8B3] uppercase md:grid">
+                <div>ROLE</div>
+                <div>PLAYER</div>
+                <div>TYPE</div>
+                <div className="text-center">BAT</div>
+                <div className="text-center">BOWL</div>
+                <div className="text-center">IMP</div>
+                <div className="text-center">OVR</div>
+                <div className="text-right">RETAIN</div>
+              </div>
+
+              {canonicalPlayers.length === 0 ? (
+                <div className="px-4 py-8 text-center text-xs text-[#9DA8B3]">
+                  No players match your search or filters.
+                </div>
+              ) : (
+                <div className="divide-y divide-[#263039]">
+                  {canonicalPlayers.slice(0, 120).map((group) => {
+                    const chosenKey = seasonChoiceByPlayer[group.playerId] ?? group.bestSeasonKey;
+                    const activeRecord =
+                      group.seasons.find((s) => makeSeasonKey(s) === chosenKey) ??
+                      group.seasons[0];
+                    const check = canRetainPlayerInSlot(state, activeRecord, activeSlotIndex);
+                    const isAlreadyRetained = slots.some(
+                      (s) => s.player !== null && s.player.playerId === group.playerId
+                    );
+                    const impScore = getPlayerImpactScore(activeRecord);
+                    const disabled = !check.allowed || isAlreadyRetained;
+                    const btnLabel = isAlreadyRetained
+                      ? 'RETAINED'
+                      : check.allowed
+                        ? 'RETAIN'
+                        : check.label ?? 'LOCKED';
+
+                    const justRetained = recentlyRetainedId === group.playerId;
+
+                    return (
+                      <div
+                        key={group.playerId}
+                        data-testid={`retention-row-${group.playerId}`}
+                        className={`transition-colors duration-150 ${
+                          justRetained ? 'ip-green-flash' : ''
+                        } ${
+                          isAlreadyRetained
+                            ? 'bg-[#22D36B]/[0.10]'
+                            : disabled
+                              ? 'bg-[#0A0E12] opacity-55'
+                              : 'bg-[#0E1318] hover:bg-[#22D36B]/[0.06]'
+                        }`}
+                      >
+                        {/* Desktop Row */}
+                        <div className="hidden min-h-[42px] grid-cols-[54px_minmax(150px,2fr)_44px_38px_38px_38px_40px_84px] items-center gap-2 px-3 py-1 md:grid">
+                          <div>
+                            <RoleBadge
+                              role={activeRecord.role}
+                              bowlingStyle={activeRecord.bowlingStyle}
+                            />
+                          </div>
+
+                          <div className="flex min-w-0 items-center gap-1.5">
+                            <span className="truncate text-[13px] font-semibold text-[#F5F2EA]">
+                              {group.playerName}
                             </span>
-                          )}
+                            {isAlreadyRetained && (
+                              <span
+                                data-testid={`ret-badge-${group.playerId}`}
+                                className="ip-chip-pop shrink-0 rounded-[2px] border border-[#22D36B] bg-[#0A2014] px-1.5 py-[1px] font-mono text-[9px] font-extrabold tracking-wider text-[#22D36B] uppercase"
+                              >
+                                RET
+                              </span>
+                            )}
+                            {group.seasons.length > 1 ? (
+                              <select
+                                aria-label={`Season for ${group.playerName}`}
+                                value={makeSeasonKey(activeRecord)}
+                                onChange={(e) =>
+                                  setSeasonChoiceByPlayer((prev) => ({
+                                    ...prev,
+                                    [group.playerId]: e.target.value,
+                                  }))
+                                }
+                                className="h-5 shrink-0 rounded-[2px] border border-[#263039] bg-[#111820] px-1 font-mono text-[9.5px] font-bold text-[#9DA8B3] focus:border-[#22D36B] focus:outline-none"
+                              >
+                                {group.seasons.map((s) => (
+                                  <option key={makeSeasonKey(s)} value={makeSeasonKey(s)}>
+                                    {s.franchise} {s.season}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span className="shrink-0 font-mono text-[10px] font-semibold text-[#9DA8B3]">
+                                {activeRecord.franchise} {activeRecord.season}
+                              </span>
+                            )}
+                            {onInspectPlayer && (
+                              <button
+                                type="button"
+                                onClick={() => onInspectPlayer(activeRecord)}
+                                aria-label={`Inspect ${group.playerName}`}
+                                className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-[2px] text-[#9DA8B3] hover:text-[#22D36B]"
+                              >
+                                <Info className="h-3 w-3" aria-hidden="true" />
+                              </button>
+                            )}
+                          </div>
+
+                          <div>
+                            <span
+                              className={`inline-block rounded-[2px] border px-1.5 py-0.5 font-mono text-[9.5px] font-bold ${
+                                activeRecord.isOverseas === true
+                                  ? 'border-[#F5B942]/35 bg-[#201A0A] text-[#F5B942]'
+                                  : 'border-[#22D36B]/30 bg-[#0A2014] text-[#22D36B]'
+                              }`}
+                            >
+                              {activeRecord.isOverseas === true ? 'OS' : 'IND'}
+                            </span>
+                          </div>
+
+                          <div className="text-center font-mono text-xs font-semibold text-[#9DA8B3] tabular-nums">
+                            {activeRecord.hasRatings !== false && activeRecord.overallRating > 0
+                              ? activeRecord.battingRating
+                              : '—'}
+                          </div>
+                          <div className="text-center font-mono text-xs font-semibold text-[#9DA8B3] tabular-nums">
+                            {activeRecord.hasRatings !== false && activeRecord.overallRating > 0
+                              ? activeRecord.bowlingRating
+                              : '—'}
+                          </div>
+                          <div className="text-center font-mono text-xs font-bold text-[#F05A32] tabular-nums">
+                            {activeRecord.hasRatings !== false && activeRecord.overallRating > 0
+                              ? impScore
+                              : '—'}
+                          </div>
+                          <div className="text-center font-mono text-xs font-extrabold text-[#F5F2EA] tabular-nums">
+                            {activeRecord.hasRatings !== false && activeRecord.overallRating > 0
+                              ? activeRecord.overallRating
+                              : '—'}
+                          </div>
+
+                          <div className="flex justify-end">
+                            <button
+                              type="button"
+                              disabled={disabled}
+                              onClick={() => handleAssign(activeRecord)}
+                              aria-label={`Retain ${group.playerName} (${activeRecord.franchise} ${activeRecord.season})`}
+                              className={`inline-flex h-7 min-w-[76px] items-center justify-center rounded-[2px] px-2 font-mono text-[10px] font-extrabold tracking-wider uppercase transition-colors ${
+                                isAlreadyRetained
+                                  ? 'cursor-default border border-[#22D36B]/45 bg-[#0A2014] text-[#22D36B]'
+                                  : disabled
+                                    ? 'cursor-not-allowed border border-[#263039] bg-[#111820] text-[#667380]'
+                                    : 'border border-[#22D36B] bg-[#22D36B] text-[#06110A] hover:bg-[#3CE282]'
+                              }`}
+                            >
+                              {btnLabel}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Mobile 2-Line Compact Row */}
+                        <div className="px-3 py-2 md:hidden">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                              <RoleBadge
+                                role={activeRecord.role}
+                                bowlingStyle={activeRecord.bowlingStyle}
+                              />
+                              <span className="truncate text-[13px] font-semibold text-[#F5F2EA]">
+                                {group.playerName}
+                              </span>
+                              {isAlreadyRetained && (
+                                <span className="ip-chip-pop shrink-0 rounded-[2px] border border-[#22D36B] bg-[#0A2014] px-1 py-[1px] font-mono text-[8.5px] font-extrabold tracking-wider text-[#22D36B] uppercase">
+                                  RET
+                                </span>
+                              )}
+                              <span
+                                className={`shrink-0 rounded-[2px] border px-1 font-mono text-[9px] font-bold ${
+                                  activeRecord.isOverseas === true
+                                    ? 'border-[#F5B942]/35 bg-[#201A0A] text-[#F5B942]'
+                                    : 'border-[#22D36B]/30 bg-[#0A2014] text-[#22D36B]'
+                                }`}
+                              >
+                                {activeRecord.isOverseas === true ? 'OS' : 'IND'}
+                              </span>
+                            </div>
+
+                            {group.seasons.length > 1 ? (
+                              <select
+                                aria-label={`Season for ${group.playerName}`}
+                                value={makeSeasonKey(activeRecord)}
+                                onChange={(e) =>
+                                  setSeasonChoiceByPlayer((prev) => ({
+                                    ...prev,
+                                    [group.playerId]: e.target.value,
+                                  }))
+                                }
+                                className="h-6 shrink-0 rounded-[2px] border border-[#263039] bg-[#111820] px-1 font-mono text-[10px] font-bold text-[#F5F2EA]"
+                              >
+                                {group.seasons.map((s) => (
+                                  <option key={makeSeasonKey(s)} value={makeSeasonKey(s)}>
+                                    {s.franchise} {s.season}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span className="shrink-0 font-mono text-[10px] font-semibold text-[#9DA8B3]">
+                                {activeRecord.franchise} {activeRecord.season}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="mt-1.5 flex items-center justify-between gap-2">
+                            <div className="font-mono text-[10.5px] text-[#9DA8B3] tabular-nums">
+                              BAT{' '}
+                              {activeRecord.hasRatings !== false && activeRecord.overallRating > 0
+                                ? activeRecord.battingRating
+                                : '—'}{' '}
+                              · BWL{' '}
+                              {activeRecord.hasRatings !== false && activeRecord.overallRating > 0
+                                ? activeRecord.bowlingRating
+                                : '—'}{' '}
+                              ·{' '}
+                              <span className="font-bold text-[#F05A32]">
+                                IMP{' '}
+                                {activeRecord.hasRatings !== false && activeRecord.overallRating > 0
+                                  ? impScore
+                                  : '—'}
+                              </span>{' '}
+                              ·{' '}
+                              <span className="font-extrabold text-[#F5F2EA]">
+                                OVR{' '}
+                                {activeRecord.hasRatings !== false && activeRecord.overallRating > 0
+                                  ? activeRecord.overallRating
+                                  : '—'}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={disabled}
+                              onClick={() => handleAssign(activeRecord)}
+                              className={`inline-flex min-h-[32px] min-w-[74px] items-center justify-center rounded-[2px] px-2.5 font-mono text-[10px] font-extrabold uppercase ${
+                                isAlreadyRetained
+                                  ? 'cursor-default border border-[#22D36B]/45 bg-[#0A2014] text-[#22D36B]'
+                                  : disabled
+                                    ? 'cursor-not-allowed border border-[#263039] bg-[#111820] text-[#667380]'
+                                    : 'border border-[#22D36B] bg-[#22D36B] text-[#06110A]'
+                              }`}
+                            >
+                              {btnLabel}
+                            </button>
+                          </div>
                         </div>
                       </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
 
+          {/* RIGHT: YOUR RETENTIONS PANEL */}
+          <aside
+            data-testid="retention-summary"
+            className="border border-[#263039] bg-[#0E1318]"
+          >
+            <div className="flex items-center justify-between border-b border-[#263039] bg-[#111820] px-3.5 py-2 text-[#F5F2EA]">
+              <h2 className="font-display text-lg font-extrabold tracking-wider uppercase">
+                YOUR RETENTIONS
+              </h2>
+              <span className="font-mono text-[11px] font-bold text-[#F5B942] tabular-nums">
+                {summary.retainedCount}/{targetCount}
+              </span>
+            </div>
+
+            <div className="divide-y divide-[#263039] bg-[#0E1318]">
+              {slots.map((slot, idx) => {
+                const isSelectedSlot = idx === activeSlotIndex;
+                const player = slot.player;
+
+                return (
+                  <div
+                    key={slot.slotNumber}
+                    data-testid={`retention-slot-${slot.slotNumber}`}
+                    onClick={() => setActiveSlotIndex(idx)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setActiveSlotIndex(idx);
+                      }
+                    }}
+                    className={`flex cursor-pointer items-center justify-between gap-2 px-3.5 py-2.5 transition-colors ${
+                      isSelectedSlot ? 'bg-[#22D36B]/[0.08]' : 'hover:bg-[#111820]'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 font-mono text-[10px]">
+                        <span className="font-extrabold text-[#9DA8B3]">
+                          SLOT {slot.slotNumber}
+                        </span>
+                        <span className="font-extrabold text-[#F5B942] tabular-nums">
+                          ₹{slot.costCr} Cr
+                        </span>
+                        {isSelectedSlot && (
+                          <span className="rounded-[2px] border border-[#22D36B]/50 bg-[#0A2014] px-1 font-bold text-[#22D36B]">
+                            ACTIVE
+                          </span>
+                        )}
+                      </div>
+
+                      {player ? (
+                        <div
+                          className={`mt-0.5 ${
+                            recentlyRetainedId === player.playerId ? 'ip-chip-pop' : ''
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span className="truncate text-xs font-extrabold text-[#F5F2EA]">
+                              {player.playerName}
+                            </span>
+                            <span className="shrink-0 rounded-[2px] border border-[#22D36B] bg-[#0A2014] px-1 py-[1px] font-mono text-[8.5px] font-extrabold text-[#22D36B]">
+                              RET
+                            </span>
+                          </div>
+                          <div className="font-mono text-[10px] text-[#9DA8B3] tabular-nums">
+                            {player.franchise} {player.season} · OVR {player.overallRating}
+                            {player.isOverseas ? ' · OS' : ' · IND'}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-0.5 text-xs text-[#667380]">
+                          Tap player on left to retain
+                        </div>
+                      )}
+                    </div>
+
+                    {player && (
                       <button
                         type="button"
                         onClick={(e) => {
@@ -322,419 +719,63 @@ export function RetentionScreen({
                           onClearRetentionSlot(idx);
                           setActiveSlotIndex(idx);
                         }}
-                        aria-label={`Remove ${player.playerName} from Retention Slot ${slot.slotNumber}`}
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[2px] border border-[#141619]/25 bg-[#FAF8F3] text-[#4A4E54] hover:border-[#D94E28] hover:text-[#D94E28]"
+                        aria-label={`Remove ${player.playerName}`}
+                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[2px] border border-[#263039] text-[#9DA8B3] hover:border-[#E44949] hover:text-[#E44949]"
                       >
                         <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                       </button>
-                    </div>
-                  ) : (
-                    <div className="mt-1.5 flex items-center justify-between text-xs">
-                      <span className="text-[#4A4E54]">
-                        {isSelectedSlot ? 'Active slot...' : 'Empty — click to target'}
-                      </span>
-                      {isSelectedSlot && (
-                        <span className="rounded-[2px] bg-[#D94E28] px-1.5 py-0.5 font-mono text-[9.5px] font-bold text-white">
-                          ACTIVE
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+                    )}
+                  </div>
+                );
+              })}
+            </div>
 
-      {/* RETENTION SUMMARY & LOCK BUTTON */}
-      {targetCount !== null && (
-        <div
-          data-testid="retention-summary"
-          className="border-2 border-[#141619] bg-[#0D1B2A] p-4 text-white"
-        >
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-[#F59E0B]" aria-hidden="true" />
-                <h2 className="font-display text-lg font-extrabold tracking-wider text-white uppercase">
-                  RETENTION SUMMARY
-                </h2>
-              </div>
-
-              <dl className="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-5">
-                <div className="border border-white/15 bg-[#132338] px-2.5 py-1.5">
-                  <dt className="font-mono text-[10px] text-slate-300 uppercase">Retained</dt>
-                  <dd
-                    data-testid="summary-retained-count"
-                    className="font-mono text-sm font-bold text-white tabular-nums"
-                  >
-                    {summary.retainedCount}
+            <div className="border-t border-[#263039] bg-[#111820] p-3.5">
+              <dl className="space-y-1 font-mono text-xs tabular-nums">
+                <div className="flex justify-between">
+                  <dt className="text-[#9DA8B3]">Retention Spend</dt>
+                  <dd data-testid="summary-retention-spend" className="font-bold text-[#F5B942]">
+                    <AnimatedNumber
+                      value={summary.retentionSpendCr}
+                      enabled={animPrefs.isFull}
+                      format={(v) => formatCr(Math.max(0, v))}
+                    />
                   </dd>
                 </div>
-                <div className="border border-white/15 bg-[#132338] px-2.5 py-1.5">
-                  <dt className="font-mono text-[10px] text-slate-300 uppercase">Spend</dt>
-                  <dd
-                    data-testid="summary-retention-spend"
-                    className="font-mono text-sm font-bold text-[#F59E0B] tabular-nums"
-                  >
-                    {formatCr(summary.retentionSpendCr)}
+                <div className="flex justify-between">
+                  <dt className="text-[#9DA8B3]">Purse After Lock</dt>
+                  <dd className="font-extrabold text-[#F5F2EA]">
+                    <AnimatedNumber
+                      value={summary.remainingPurseCr}
+                      enabled={animPrefs.isFull}
+                      format={(v) => formatCr(Math.max(0, v))}
+                    />
                   </dd>
                 </div>
-                <div className="border border-white/15 bg-[#132338] px-2.5 py-1.5">
-                  <dt className="font-mono text-[10px] text-slate-300 uppercase">Purse Left</dt>
-                  <dd
-                    data-testid="summary-remaining-purse"
-                    className="font-mono text-sm font-bold text-white tabular-nums"
-                  >
-                    {formatCr(summary.remainingPurseCr)}
-                  </dd>
-                </div>
-                <div className="border border-white/15 bg-[#132338] px-2.5 py-1.5">
-                  <dt className="font-mono text-[10px] text-slate-300 uppercase">Squad</dt>
-                  <dd
-                    data-testid="summary-squad-count"
-                    className="font-mono text-sm font-bold text-white tabular-nums"
-                  >
-                    {summary.squadCount}/{summary.squadSize}
-                  </dd>
-                </div>
-                <div className="col-span-2 border border-white/15 bg-[#132338] px-2.5 py-1.5 sm:col-span-1">
-                  <dt className="font-mono text-[10px] text-slate-300 uppercase">Overseas</dt>
-                  <dd
-                    data-testid="summary-overseas-count"
-                    className="font-mono text-sm font-bold text-emerald-300 tabular-nums"
-                  >
+                <div className="flex justify-between">
+                  <dt className="text-[#9DA8B3]">Overseas Used</dt>
+                  <dd data-testid="summary-overseas-count" className="font-bold text-[#22D36B]">
                     {summary.overseasCount}/{summary.overseasLimit}
                   </dd>
                 </div>
               </dl>
-            </div>
 
-            <div className="flex shrink-0 flex-col items-stretch lg:items-end">
-              {!summary.allSlotsFilled && targetCount > 0 && (
-                <p className="mb-1.5 font-mono text-[11px] font-semibold text-[#F59E0B]">
-                  Fill all {targetCount} retention slot{targetCount > 1 ? 's' : ''} to lock.
-                </p>
-              )}
               <button
                 type="button"
                 disabled={!summary.canLockAndStart}
                 onClick={onLockRetentions}
                 data-testid="lock-retentions-btn"
-                className={`inline-flex min-h-[46px] items-center justify-center gap-2 rounded-[3px] px-5 py-2.5 font-display text-lg font-extrabold tracking-wider uppercase transition-colors whitespace-nowrap ${
+                className={`mt-3 flex min-h-[44px] w-full items-center justify-center gap-2 rounded-[2px] px-4 py-2 font-display text-lg font-extrabold tracking-wider uppercase transition-colors ${
                   summary.canLockAndStart
-                    ? 'bg-[#D94E28] text-white hover:bg-[#B83C1B]'
-                    : 'cursor-not-allowed border border-white/15 bg-slate-800 text-slate-400'
+                    ? 'border border-[#22D36B] bg-[#22D36B] text-[#06110A] hover:bg-[#3CE282]'
+                    : 'cursor-not-allowed border border-[#263039] bg-[#0E1318] text-[#667380]'
                 }`}
               >
                 <Lock className="h-4 w-4" aria-hidden="true" />
-                <span>LOCK RETENTIONS &amp; START SPIN DRAFT</span>
+                <span>LOCK RETENTIONS</span>
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Step 3: Unique Player Search -> Historical Seasons Table */}
-      {targetCount !== null && targetCount > 0 && activeSlot && (
-        <div className="border border-[#141619] bg-[#FAF8F3] p-3.5">
-          {/* Search + Role/Origin Filter Bar */}
-          <div className="flex flex-col gap-2 border-b border-[#141619]/15 pb-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative min-w-[210px] flex-1 sm:max-w-[270px]">
-                <Search
-                  className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#4A4E54]"
-                  aria-hidden="true"
-                />
-                <input
-                  type="search"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search unique player name..."
-                  aria-label="Search retention players"
-                  className="h-9 w-full rounded-[3px] border border-[#141619]/35 bg-white pl-8 pr-7 text-xs font-medium text-[#141619] placeholder:text-[#6A6E75] focus:border-[#D94E28] focus:outline-none"
-                />
-                {searchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchQuery('')}
-                    aria-label="Clear retention search"
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-[#4A4E54] hover:text-[#141619]"
-                  >
-                    <X className="h-3.5 w-3.5" aria-hidden="true" />
-                  </button>
-                )}
-              </div>
-
-              <div
-                className="flex items-center gap-0.5 rounded-[3px] border border-[#141619]/30 bg-white p-0.5"
-                role="group"
-                aria-label="Filter retention by role"
-              >
-                {(['ALL', 'BAT', 'WK', 'AR', 'BOWL'] as RoleFilter[]).map((role) => {
-                  const active = roleFilter === role;
-                  return (
-                    <button
-                      key={role}
-                      type="button"
-                      onClick={() => setRoleFilter(role)}
-                      aria-pressed={active}
-                      className={`min-h-[28px] rounded-[2px] px-2 py-0.5 font-mono text-[10.5px] font-bold transition-colors ${
-                        active
-                          ? 'bg-[#D94E28] text-white'
-                          : 'text-[#141619] hover:bg-[#EAE3D5]'
-                      }`}
-                    >
-                      {role}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div
-                className="flex items-center gap-0.5 rounded-[3px] border border-[#141619]/30 bg-white p-0.5"
-                role="group"
-                aria-label="Filter retention by nationality"
-              >
-                {(
-                  [
-                    { id: 'ALL', label: 'ALL' },
-                    { id: 'INDIAN', label: 'IND' },
-                    { id: 'OVERSEAS', label: 'OS' },
-                  ] as const
-                ).map((opt) => {
-                  const active = originFilter === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => setOriginFilter(opt.id)}
-                      aria-pressed={active}
-                      className={`min-h-[28px] rounded-[2px] px-2 py-0.5 font-mono text-[10.5px] font-bold transition-colors ${
-                        active
-                          ? 'bg-[#0D1B2A] text-white'
-                          : 'text-[#141619] hover:bg-[#EAE3D5]'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="font-mono text-[11px] font-semibold text-[#4A4E54] tabular-nums">
-              {uniquePlayers.length} unique players · Slot {activeSlot.slotNumber} (₹{activeSlot.costCr} Cr)
-            </div>
-          </div>
-
-          {/* Two-Column Scorebook Layout: Left = Unique Players Directory, Right = Selected Player's Historical Seasons */}
-          <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[0.9fr_1.35fr]">
-            {/* Left: Unique Players List */}
-            <div className="border border-[#141619] bg-white">
-              <div className="flex items-center justify-between border-b border-[#141619] bg-[#EAE3D5] px-3 py-1.5 font-mono text-[10px] font-bold tracking-wider text-[#141619] uppercase">
-                <span>1. Select Player</span>
-                <span>Peak OVR</span>
-              </div>
-
-              <div className="max-h-[360px] divide-y divide-[#D6D0C4] overflow-y-auto">
-                {uniquePlayers.length === 0 ? (
-                  <div className="px-4 py-8 text-center text-xs text-[#4A4E54]">
-                    No players match your current filters.
-                  </div>
-                ) : (
-                  uniquePlayers.slice(0, 120).map((group) => {
-                    const isSelected = activeUniquePlayer?.playerId === group.playerId;
-                    return (
-                      <button
-                        key={group.playerId}
-                        type="button"
-                        data-testid={`retention-player-${group.playerId}`}
-                        onClick={() => setSelectedUniqueId(group.playerId)}
-                        className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition-colors ${
-                          isSelected
-                            ? 'bg-[#0D1B2A] text-white'
-                            : 'bg-white text-[#141619] hover:bg-[#F5F1E8]'
-                        }`}
-                      >
-                        <div className="flex min-w-0 flex-1 items-center gap-2">
-                          <RoleBadge role={group.role} bowlingStyle={group.bowlingStyle} />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5">
-                              <span className="truncate text-xs font-bold">
-                                {group.playerName}
-                              </span>
-                              <span
-                                className={`shrink-0 rounded-[2px] px-1 py-0.2 font-mono text-[9px] font-bold ${
-                                  group.isOverseas === true
-                                    ? isSelected
-                                      ? 'bg-amber-400/20 text-amber-300'
-                                      : 'bg-[#FEF3C7] text-[#B45309]'
-                                    : group.isOverseas === false
-                                      ? isSelected
-                                        ? 'bg-emerald-400/20 text-emerald-300'
-                                        : 'bg-[#DCFCE7] text-[#157F3D]'
-                                      : 'bg-stone-200 text-stone-700'
-                                }`}
-                              >
-                                {group.isOverseas === true
-                                  ? 'OS'
-                                  : group.isOverseas === false
-                                    ? 'IND'
-                                    : 'UNK'}
-                              </span>
-                            </div>
-                            <div
-                              className={`font-mono text-[10px] ${
-                                isSelected ? 'text-slate-300' : 'text-[#4A4E54]'
-                              }`}
-                            >
-                              {group.seasons.length} season{group.seasons.length > 1 ? 's' : ''}
-                            </div>
-                          </div>
-                        </div>
-
-                        <span
-                          className={`shrink-0 font-mono text-xs font-extrabold tabular-nums ${
-                            isSelected ? 'text-[#F59E0B]' : 'text-[#141619]'
-                          }`}
-                        >
-                          {group.bestOvr}
-                        </span>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-
-            {/* Right: Selected Player's Historical Seasons Table */}
-            <div className="border border-[#141619] bg-white">
-              <div className="flex items-center justify-between border-b border-[#141619] bg-[#EAE3D5] px-3 py-1.5">
-                <span className="font-mono text-[10px] font-bold tracking-wider text-[#141619] uppercase">
-                  2. Historical Seasons{' '}
-                  {activeUniquePlayer ? `— ${activeUniquePlayer.playerName}` : ''}
-                </span>
-                <span className="font-mono text-[10px] font-bold text-[#B45309]">
-                  Slot Price: ₹{activeSlot.costCr} Cr
-                </span>
-              </div>
-
-              {!activeUniquePlayer ? (
-                <div className="px-4 py-10 text-center text-xs text-[#4A4E54]">
-                  Select a player from the left directory to view their historical IPL seasons.
-                </div>
-              ) : (
-                <div
-                  data-testid="retention-player-list"
-                  className="max-h-[360px] overflow-x-auto overflow-y-auto"
-                >
-                  <table className="w-full border-collapse text-left text-xs">
-                    <thead className="sticky top-0 z-10 border-b border-[#141619]/20 bg-[#FAF8F3] font-mono text-[10px] font-bold tracking-wider text-[#4A4E54] uppercase">
-                      <tr>
-                        <th className="px-2.5 py-2">ROLE</th>
-                        <th className="px-2.5 py-2">PLAYER</th>
-                        <th className="px-2 py-2 text-center">SEASON</th>
-                        <th className="px-2 py-2">TEAM</th>
-                        <th className="px-1.5 py-2 text-center">BAT</th>
-                        <th className="px-1.5 py-2 text-center">BOWL</th>
-                        <th className="px-1.5 py-2 text-center">IMP</th>
-                        <th className="px-1.5 py-2 text-center">OVR</th>
-                        <th className="px-2.5 py-2 text-right">RETAIN</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#D6D0C4]">
-                      {activeUniquePlayer.seasons.map((player) => {
-                        const check = canRetainPlayerInSlot(state, player, activeSlotIndex);
-                        const isCurrentSlotPick =
-                          activeSlot.player !== null &&
-                          (activeSlot.player.id ?? activeSlot.player.playerId) ===
-                            (player.id ?? player.playerId) &&
-                          activeSlot.player.season === player.season &&
-                          activeSlot.player.franchise === player.franchise;
-                        const impScore = getPlayerImpactScore(player);
-                        const disabled = !check.allowed || isCurrentSlotPick;
-                        const buttonLabel = isCurrentSlotPick
-                          ? 'SELECTED'
-                          : check.allowed
-                            ? 'RETAIN'
-                            : check.label ?? 'LOCKED';
-
-                        return (
-                          <tr
-                            key={`${player.franchise}-${player.season}-${player.playerId}`}
-                            data-testid={`retention-row-${player.playerId}-${player.franchise}-${player.season}`}
-                            className={`transition-colors ${
-                              isCurrentSlotPick
-                                ? 'bg-[#FEF3C7]/60'
-                                : disabled
-                                  ? 'bg-[#F5F1E8]/60 opacity-65'
-                                  : 'hover:bg-[#FAF8F3]'
-                            }`}
-                          >
-                            <td className="px-2.5 py-2">
-                              <RoleBadge role={player.role} bowlingStyle={player.bowlingStyle} />
-                            </td>
-                            <td className="px-2.5 py-2">
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-bold text-[#141619]">
-                                  {player.playerName}
-                                </span>
-                                {onInspectPlayer && (
-                                  <button
-                                    type="button"
-                                    onClick={() => onInspectPlayer(player)}
-                                    aria-label={`Inspect ${player.playerName} (${player.season})`}
-                                    className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[#141619]/25 text-[#4A4E54] hover:border-[#141619] hover:text-[#141619]"
-                                  >
-                                    <Info className="h-3 w-3" aria-hidden="true" />
-                                  </button>
-                                )}
-                              </div>
-                            </td>
-                            <td className="px-2 py-2 text-center font-mono font-bold text-[#141619] tabular-nums">
-                              {player.season}
-                            </td>
-                            <td className="px-2 py-2 font-mono font-bold text-[#4A4E54]">
-                              {player.franchise}
-                            </td>
-                            <td className="px-1.5 py-2 text-center font-mono tabular-nums">
-                              {player.battingRating}
-                            </td>
-                            <td className="px-1.5 py-2 text-center font-mono tabular-nums">
-                              {player.bowlingRating}
-                            </td>
-                            <td className="px-1.5 py-2 text-center font-mono font-semibold text-[#6D28D9] tabular-nums">
-                              {impScore}
-                            </td>
-                            <td className="px-1.5 py-2 text-center font-mono font-extrabold text-[#141619] tabular-nums">
-                              {player.overallRating}
-                            </td>
-                            <td className="px-2.5 py-2 text-right">
-                              <button
-                                type="button"
-                                disabled={disabled}
-                                onClick={() => handleAssign(player)}
-                                aria-label={`Retain ${player.playerName} (${player.franchise} ${player.season}) for ₹${activeSlot.costCr} Cr`}
-                                className={`inline-flex min-h-[30px] min-w-[78px] items-center justify-center rounded-[2px] px-2.5 py-1 font-mono text-[10.5px] font-bold tracking-wider uppercase transition-colors ${
-                                  disabled
-                                    ? 'cursor-not-allowed border border-[#141619]/20 bg-[#EAE3D5] text-[#6A6E75]'
-                                    : 'bg-[#D94E28] text-white hover:bg-[#B83C1B]'
-                                }`}
-                              >
-                                {buttonLabel}
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
+          </aside>
         </div>
       )}
     </div>

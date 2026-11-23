@@ -9,6 +9,7 @@ import type {
   SpinResult,
 } from '../types/game';
 import { createInitialRetentionState } from './retentionEngine';
+import { getCanonicalPlayerId } from './leagueOwnershipEngine.mjs';
 
 export const DEFAULT_SETTINGS: DraftSettings = {
   franchiseName: 'Mumbai Warriors',
@@ -21,6 +22,8 @@ export const DEFAULT_SETTINGS: DraftSettings = {
   difficulty: 'Standard',
   soundEnabled: true,
   animationEnabled: true,
+  animationMode: 'FULL',
+  skipMatchAnimations: false,
   simSpeed: 'Normal',
 };
 
@@ -84,12 +87,270 @@ export function setCustomFranchise(state: DraftState, franchise: CustomFranchise
 }
 
 export function roundCr(value: number): number {
-  return Math.round(value * 10) / 10;
+  return Math.round(value * 100) / 100;
 }
 
 export function formatCr(value: number): string {
   const rounded = roundCr(value);
-  return Number.isInteger(rounded) ? `₹${rounded} Cr` : `₹${rounded.toFixed(1)} Cr`;
+  return Number.isInteger(rounded) ? `₹${rounded} Cr` : `₹${Number(rounded.toFixed(2))} Cr`;
+}
+
+export function formatCrUpper(value: number): string {
+  const rounded = roundCr(value);
+  return Number.isInteger(rounded) ? `₹${rounded} CR` : `₹${Number(rounded.toFixed(2))} CR`;
+}
+
+export function calculateStableGamePriceCr(input: {
+  hasRatings?: boolean;
+  battingRating: number;
+  bowlingRating: number;
+  impactRating: number;
+  overallRating: number;
+  runs?: number;
+  wickets?: number;
+  matches?: number;
+  role: PlayerRole;
+  isOverseas: boolean | null;
+}): number {
+  const hasStoredRatings = input.hasRatings !== false && input.overallRating > 0;
+  if (!hasStoredRatings) {
+    // Modest, stable base auction value when both real contract and ratings are pending.
+    // Never uses a flat ₹8 Cr fallback and keeps every squad player draftable.
+    if (input.role === 'AR' || input.role === 'WK') {
+      return input.isOverseas === true ? 1.5 : 1.0;
+    }
+    if (input.role === 'BAT' || input.role === 'BOWL') {
+      return input.isOverseas === true ? 1.25 : 0.75;
+    }
+    return 0.5;
+  }
+
+  const primarySkill = Math.max(input.battingRating, input.bowlingRating);
+  const composite =
+    input.overallRating * 0.58 +
+    input.impactRating * 0.27 +
+    primarySkill * 0.15;
+
+  const normalized = Math.max(0, (composite - 30) / 62);
+  let price = 0.5 + Math.pow(normalized, 2.05) * 14.25;
+
+  const runs = Number.isFinite(input.runs) ? Number(input.runs) : 0;
+  const wickets = Number.isFinite(input.wickets) ? Number(input.wickets) : 0;
+  if (runs >= 500) price += 1.25;
+  else if (runs >= 300) price += 0.5;
+  if (wickets >= 18) price += 1.25;
+  else if (wickets >= 12) price += 0.5;
+
+  if (input.role === 'AR' || input.role === 'WK') {
+    price += 0.5;
+  }
+
+  const clamped = Math.max(0.5, Math.min(16.0, price));
+  return roundCr(Math.round(clamped * 4) / 4);
+}
+
+export interface PlayerDataChecklistItem {
+  key: 'identity' | 'squad' | 'role' | 'origin' | 'stats' | 'ratings' | 'salary';
+  label: string;
+  available: boolean;
+  pendingNote?: string;
+}
+
+export interface PlayerDataCompleteness {
+  hasPendingData: boolean;
+  hasRatings: boolean;
+  hasRealContract: boolean;
+  pendingCount: number;
+  items: PlayerDataChecklistItem[];
+}
+
+export function getPlayerDataCompleteness(player: PlayerSeasonRecord): PlayerDataCompleteness {
+  const hasRatings = player.hasRatings !== false && player.overallRating > 0;
+  const hasRealContract =
+    Boolean(player.isRetained) ||
+    (getPlayerSalaryCr(player) !== null && Boolean(player.salary?.verified ?? player.salaryVerified));
+  const identityVerified = player.identityStatus
+    ? player.identityStatus === 'RESOLVED'
+    : Boolean(player.cricsheetId || player.playerId);
+  const hasHistoricalSquad = Boolean(player.franchise && player.season);
+  const hasRole = player.role !== 'UNKNOWN';
+  const hasOrigin = player.isOverseas !== null;
+  const hasStats = Boolean(
+    player.matches > 0 || player.runs > 0 || player.wickets > 0 || hasRatings
+  );
+
+  const items: PlayerDataChecklistItem[] = [
+    {
+      key: 'identity',
+      label: 'Identity Verified',
+      available: identityVerified,
+      pendingNote: identityVerified ? undefined : 'PENDING',
+    },
+    {
+      key: 'squad',
+      label: 'Historical Squad',
+      available: hasHistoricalSquad,
+    },
+    {
+      key: 'role',
+      label: 'Role',
+      available: hasRole,
+      pendingNote: hasRole ? undefined : 'PENDING',
+    },
+    {
+      key: 'origin',
+      label: 'Indian / Overseas',
+      available: hasOrigin,
+      pendingNote: hasOrigin ? undefined : 'PENDING',
+    },
+    {
+      key: 'stats',
+      label: 'Performance Stats',
+      available: hasStats,
+      pendingNote: hasStats ? undefined : 'PENDING',
+    },
+    {
+      key: 'ratings',
+      label: 'Ratings',
+      available: hasRatings,
+      pendingNote: hasRatings ? undefined : 'RATING PENDING',
+    },
+    {
+      key: 'salary',
+      label: 'Salary',
+      available: hasRealContract,
+      pendingNote: hasRealContract ? undefined : 'REAL CONTRACT PENDING',
+    },
+  ];
+
+  const pendingCount = items.filter((item) => !item.available).length;
+  return {
+    hasPendingData: pendingCount > 0,
+    hasRatings,
+    hasRealContract,
+    pendingCount,
+    items,
+  };
+}
+
+export function getPlayerSalaryCr(player: PlayerSeasonRecord): number | null {
+  if (player.isRetained) {
+    return Number.isFinite(player.priceCr) ? player.priceCr : null;
+  }
+  if (typeof player.salary?.salaryCr === 'number' && Number.isFinite(player.salary.salaryCr)) {
+    return player.salary.salaryCr;
+  }
+  if (typeof player.salaryCr === 'number' && Number.isFinite(player.salaryCr)) {
+    return player.salaryCr;
+  }
+  return null;
+}
+
+export function getPlayerGamePriceCr(player: PlayerSeasonRecord): number | null {
+  if (
+    typeof player.gamePriceCr === 'number' &&
+    Number.isFinite(player.gamePriceCr) &&
+    player.gamePriceCr > 0
+  ) {
+    return player.gamePriceCr;
+  }
+  if (
+    typeof player.salary?.gamePriceCr === 'number' &&
+    Number.isFinite(player.salary.gamePriceCr) &&
+    player.salary.gamePriceCr > 0
+  ) {
+    return player.salary.gamePriceCr;
+  }
+  return calculateStableGamePriceCr(player);
+}
+
+export function isPlayerSalaryVerified(player: PlayerSeasonRecord): boolean {
+  const realSalary = getPlayerSalaryCr(player);
+  return realSalary !== null && Boolean(player.salary?.verified ?? player.salaryVerified);
+}
+
+export function getPlayerSalarySource(player: PlayerSeasonRecord): import('../types/game').SalarySource {
+  const realSalary = getPlayerSalaryCr(player);
+  if (realSalary !== null && Boolean(player.salary?.verified ?? player.salaryVerified)) {
+    return 'REAL_CONTRACT';
+  }
+  const gamePrice = getPlayerGamePriceCr(player);
+  if (gamePrice !== null) {
+    return 'GAME_VALUE';
+  }
+  if (realSalary !== null) {
+    return 'REPORTED';
+  }
+  return 'UNAVAILABLE';
+}
+
+export function isPlayerSalaryReported(player: PlayerSeasonRecord): boolean {
+  return !player.isRetained && getPlayerSalarySource(player) === 'REPORTED';
+}
+
+export interface PlayerDisplayPriceInfo {
+  amountCr: number | null;
+  source: import('../types/game').SalarySource | 'RETENTION';
+  label: string;
+  tag: string | null;
+}
+
+export function getPlayerDisplayPriceInfo(player: PlayerSeasonRecord): PlayerDisplayPriceInfo {
+  if (player.isRetained && Number.isFinite(player.priceCr)) {
+    return {
+      amountCr: player.priceCr,
+      source: 'RETENTION',
+      label: formatCr(player.priceCr),
+      tag: 'RETENTION',
+    };
+  }
+
+  const source = getPlayerSalarySource(player);
+  if (source === 'REAL_CONTRACT') {
+    const sal = getPlayerSalaryCr(player)!;
+    return {
+      amountCr: sal,
+      source: 'REAL_CONTRACT',
+      label: `${formatCrUpper(sal)} · REAL CONTRACT`,
+      tag: 'REAL CONTRACT',
+    };
+  }
+  if (source === 'GAME_VALUE') {
+    const gp = getPlayerGamePriceCr(player)!;
+    return {
+      amountCr: gp,
+      source: 'GAME_VALUE',
+      label: `${formatCrUpper(gp)} · GAME VALUE`,
+      tag: 'GAME VALUE',
+    };
+  }
+  if (source === 'REPORTED') {
+    const sal = getPlayerSalaryCr(player)!;
+    return {
+      amountCr: sal,
+      source: 'REPORTED',
+      label: `${formatCrUpper(sal)} · REPORTED`,
+      tag: 'REPORTED',
+    };
+  }
+  return {
+    amountCr: null,
+    source: 'UNAVAILABLE',
+    label: 'DATA PENDING',
+    tag: null,
+  };
+}
+
+export function getPlayerDraftCostCr(player: PlayerSeasonRecord): number {
+  if (player.isRetained) {
+    return Number.isFinite(player.priceCr) ? player.priceCr : 0;
+  }
+  const info = getPlayerDisplayPriceInfo(player);
+  return info.amountCr ?? 0;
+}
+
+export function formatPlayerSalary(player: PlayerSeasonRecord): string {
+  return getPlayerDisplayPriceInfo(player).label;
 }
 
 export function createInitialDraftState(settings: DraftSettings = DEFAULT_SETTINGS): DraftState {
@@ -146,8 +407,19 @@ export function executeSpin(
     return state;
   }
 
-  const index = Math.min(eligible.length - 1, Math.floor(rng() * eligible.length));
-  const chosen = eligible[index];
+  let candidateCombos = eligible;
+  if (state.liveLeague) {
+    const playable = eligible.filter((combo) => {
+      const sq = repo.getSquad(combo.franchise, combo.season);
+      return sq.some((p) => canSelectPlayer(state, p).allowed);
+    });
+    if (playable.length > 0) {
+      candidateCombos = playable;
+    }
+  }
+
+  const index = Math.min(candidateCombos.length - 1, Math.floor(rng() * candidateCombos.length));
+  const chosen = candidateCombos[index];
   const pool = repo.getSquad(chosen.franchise, chosen.season);
 
   const spinResult: SpinResult = {
@@ -171,7 +443,40 @@ export function canSelectPlayer(state: DraftState, player: PlayerSeasonRecord): 
   }
 
   const canonicalId = player.id ?? player.playerId;
-  if (state.draftedPlayerIds.includes(canonicalId)) {
+  const normalizedCanonicalId = getCanonicalPlayerId(player);
+
+  if (state.liveLeague) {
+    const ownerTeamId =
+      state.liveLeague.playerOwners[normalizedCanonicalId] ??
+      state.liveLeague.playerOwners[canonicalId];
+    if (ownerTeamId) {
+      const ownerCode =
+        state.liveLeague.teams[ownerTeamId]?.code ??
+        (ownerTeamId === 'YOU' ? state.customFranchise?.code ?? 'YOU' : ownerTeamId);
+      return {
+        allowed: false,
+        reason: 'ALREADY_DRAFTED',
+        label: `OWNED BY ${ownerCode}`,
+        ownerTeamId,
+        ownerTeamCode: ownerCode,
+      };
+    }
+  }
+
+  if (
+    state.draftedPlayerIds.includes(canonicalId) ||
+    state.squad.some((p) => getCanonicalPlayerId(p) === normalizedCanonicalId)
+  ) {
+    if (state.liveLeague) {
+      const userCode = state.liveLeague.teams.YOU?.code ?? state.customFranchise?.code ?? 'YOU';
+      return {
+        allowed: false,
+        reason: 'ALREADY_DRAFTED',
+        label: `OWNED BY ${userCode}`,
+        ownerTeamId: 'YOU',
+        ownerTeamCode: userCode,
+      };
+    }
     return { allowed: false, reason: 'ALREADY_DRAFTED', label: 'ALREADY DRAFTED' };
   }
 
@@ -186,15 +491,16 @@ export function canSelectPlayer(state: DraftState, player: PlayerSeasonRecord): 
     };
   }
 
+  const playerCostCr = getPlayerDraftCostCr(player);
   const remainingAfterPick = Math.max(0, state.settings.squadSize - state.squad.length - 1);
   const minReserveCr = roundCr(remainingAfterPick * 0.5);
   const maxAllowedSpendCr = roundCr(state.remainingPurseCr - minReserveCr);
 
-  if (roundCr(player.priceCr) > roundCr(state.remainingPurseCr)) {
+  if (roundCr(playerCostCr) > roundCr(state.remainingPurseCr)) {
     return { allowed: false, reason: 'INSUFFICIENT_PURSE', label: 'Low Purse' };
   }
 
-  if (roundCr(player.priceCr) > maxAllowedSpendCr) {
+  if (roundCr(playerCostCr) > maxAllowedSpendCr) {
     return {
       allowed: false,
       reason: 'INSUFFICIENT_PURSE',
@@ -213,7 +519,8 @@ export function selectPlayerForDraft(state: DraftState, player: PlayerSeasonReco
 
   const canonicalId = player.id ?? player.playerId;
   const nextSquad = [...state.squad, player];
-  const nextPurse = roundCr(state.remainingPurseCr - player.priceCr);
+  const playerCostCr = getPlayerDraftCostCr(player);
+  const nextPurse = roundCr(state.remainingPurseCr - playerCostCr);
   const nextDraftedIds = [...state.draftedPlayerIds, canonicalId];
   const isComplete = nextSquad.length >= state.settings.squadSize;
 

@@ -17,13 +17,10 @@ import {
   getUserFixtures,
   quickSimUserFixture,
 } from './seasonEngine';
-import { JsonIplRepository, parseIplDatabase } from '../data/playerRepository';
+import { JsonIplRepository, isProvisionalStatus, parseIplDatabase } from '../data/playerRepository';
 import type { IplDatabaseJson, PlayerForm, PlayerSeasonRecord } from '../types/game';
 
-const dbPath = path.resolve(
-  process.cwd(),
-  'public/assets/aistudio/ipl_database_final_ba929b5d.json'
-);
+const dbPath = path.resolve(process.cwd(), 'public/impact_player_database.json');
 const rawDbJson = JSON.parse(fs.readFileSync(dbPath, 'utf8')) as IplDatabaseJson;
 const realRepo = new JsonIplRepository(parseIplDatabase(rawDbJson));
 const realRepoReloaded = new JsonIplRepository(parseIplDatabase(rawDbJson));
@@ -76,13 +73,16 @@ test('role-based OVR never punishes BAT/WK/BOWL specialists for off-discipline r
   assert.ok(strongArOvr >= 86, `Expected two-way AR OVR >= 86, got ${strongArOvr}`);
 });
 
-test('ratings across all 3,552 database records are deterministic, season-specific, PROVISIONAL, and have no 58/20/58 clones', () => {
+test('ratings across all 3,552 database records preserve stored JSON ratings verbatim and never fabricate 58/20/58 placeholders', () => {
   const allPlayers = realRepo.getAllPlayerSeasonRecords();
   const reloadedPlayers = realRepoReloaded.getAllPlayerSeasonRecords();
   assert.equal(allPlayers.length, 3552);
 
-  let clone58Count = 0;
   const distinctOvrSet = new Set<number>();
+  const distinctSalarySet = new Set<number>();
+  let unknownSalaryCount = 0;
+  let ratedCount = 0;
+  let unratedCount = 0;
 
   for (let i = 0; i < allPlayers.length; i += 1) {
     const p = allPlayers[i];
@@ -94,13 +94,34 @@ test('ratings across all 3,552 database records are deterministic, season-specif
     assert.equal(p.impactRating, p2.impactRating);
     assert.equal(p.overallRating, p2.overallRating);
 
-    // Bounds 20-99 & PROVISIONAL preserved
-    assert.ok(p.battingRating >= 20 && p.battingRating <= 99);
-    assert.ok(p.bowlingRating >= 20 && p.bowlingRating <= 99);
-    assert.ok(p.impactRating >= 20 && p.impactRating <= 99);
-    assert.ok(p.overallRating >= 20 && p.overallRating <= 99);
-    assert.equal(p.ratingStatus, 'PROVISIONAL');
+    if (p.hasRatings) {
+      ratedCount += 1;
+      assert.ok(p.battingRating >= 20 && p.battingRating <= 99);
+      assert.ok(p.bowlingRating >= 20 && p.bowlingRating <= 99);
+      assert.ok(p.impactRating >= 20 && p.impactRating <= 99);
+      assert.ok(p.overallRating >= 20 && p.overallRating <= 99);
+      distinctOvrSet.add(p.overallRating);
+    } else {
+      unratedCount += 1;
+      assert.equal(p.ratings, null);
+      assert.equal(p.battingRating, 0);
+      assert.equal(p.bowlingRating, 0);
+      assert.equal(p.impactRating, 0);
+      assert.equal(p.overallRating, 0);
+      assert.equal(p.isIncomplete, true);
+    }
+
+    assert.equal(
+      p.ratingStatus,
+      !p.hasRatings || isProvisionalStatus(p.ratingQuality?.status) ? 'PROVISIONAL' : 'FINAL'
+    );
     assert.equal(p.form, 'NORMAL');
+
+    if (p.salary?.salaryCr === null) {
+      unknownSalaryCount += 1;
+    } else if (typeof p.salary?.salaryCr === 'number') {
+      distinctSalarySet.add(p.salary.salaryCr);
+    }
 
     // All 25 attributes present and within 20-99
     const batVals = Object.values(p.attributes.batting);
@@ -112,28 +133,28 @@ test('ratings across all 3,552 database records are deterministic, season-specif
     for (const v of [...batVals, ...bowlVals, ...otherVals]) {
       assert.ok(v >= 20 && v <= 99, `Out of range attr ${v} for ${p.playerName}`);
     }
-
-    if (p.battingRating === 58 && p.bowlingRating === 20 && p.overallRating === 58) {
-      clone58Count += 1;
-    }
-    distinctOvrSet.add(p.overallRating);
   }
 
-  assert.equal(clone58Count, 0, 'Must not mass-assign placeholder 58/20/58 ratings');
+  assert.equal(ratedCount, 2025, 'Expected 2,025 stats-derived rated records');
+  assert.equal(unratedCount, 1527, 'Expected 1,527 unrated records with ratings: null (no 58/20/58 placeholders)');
+  assert.ok(unknownSalaryCount > 0, 'Expected unknown salary records to remain null');
+  assert.ok(distinctSalarySet.size >= 20, 'Expected real verified salaries to vary');
   assert.ok(distinctOvrSet.size >= 35, `Expected wide OVR spread, got ${distinctOvrSet.size}`);
 });
 
-test('same player varies across historical seasons, lower-OVR/higher-IMP exists, and salary stays independent', () => {
-  const kohli2016 = realRepo.getSquad('RCB', 2016).find((p) => p.id === 'virat-kohli')!;
-  const kohli2010 = realRepo.getSquad('RCB', 2010).find((p) => p.id === 'virat-kohli')!;
+test('same player varies across historical seasons, lower-OVR/higher-IMP exists, and nested salary stays verbatim', () => {
+  const kohli2016 = realRepo.getSquad('RCB', 2016).find((p) => p.playerId === 'virat-kohli')!;
+  const kohli2010 = realRepo.getSquad('RCB', 2010).find((p) => p.playerId === 'virat-kohli')!;
   assert.ok(kohli2016 && kohli2010);
+  assert.equal(kohli2016.battingRating, 87);
+  assert.equal(kohli2016.impactRating, 93);
+  assert.equal(kohli2016.overallRating, 88);
   assert.ok(kohli2016.battingRating > kohli2010.battingRating);
   assert.ok(kohli2016.overallRating > kohli2010.overallRating);
-  assert.equal(kohli2016.ratingBand, 'Historic');
 
   // High-impact finisher can have higher IMP than a higher-OVR anchor
-  const rinku2023 = realRepo.getSquad('KKR', 2023).find((p) => p.id === 'rinku-singh')!;
-  const kl2020 = realRepo.getSquad('PBKS', 2020).find((p) => p.id === 'kl-rahul')!;
+  const rinku2023 = realRepo.getSquad('KKR', 2023).find((p) => p.playerId === 'rinku-singh')!;
+  const kl2020 = realRepo.getSquad('PBKS', 2020).find((p) => p.playerId === 'kl-rahul')!;
   assert.ok(rinku2023 && kl2020);
   assert.ok(rinku2023.overallRating < kl2020.overallRating);
   assert.ok(
@@ -141,12 +162,22 @@ test('same player varies across historical seasons, lower-OVR/higher-IMP exists,
     `Expected finisher Rinku 2023 IMP (${rinku2023.impactRating}) > KL 2020 IMP (${kl2020.impactRating})`
   );
 
-  // Salary remains verbatim from raw JSON and completely independent of OVR
+  // Nested salary & ratings remain verbatim from raw JSON (including null ratings when absent)
   const rawRcb2016 = rawDbJson.seasons['2016']['RCB'].players;
   const loadedRcb2016 = realRepo.getSquad('RCB', 2016);
   for (const raw of rawRcb2016) {
-    const loaded = loadedRcb2016.find((p) => p.id === raw.id)!;
-    assert.equal(loaded.priceCr, raw.priceCr);
+    const rawId = raw.playerId ?? raw.id;
+    const loaded = loadedRcb2016.find((p) => p.playerId === rawId)!;
+    assert.equal(loaded.salary?.salaryCr, raw.salary?.salaryCr ?? null);
+    if (raw.ratings) {
+      assert.equal(loaded.hasRatings, true);
+      assert.equal(loaded.battingRating, raw.ratings.bat);
+      assert.equal(loaded.bowlingRating, raw.ratings.bowl);
+      assert.equal(loaded.overallRating, raw.ratings.overall);
+    } else {
+      assert.equal(loaded.hasRatings, false);
+      assert.equal(loaded.overallRating, 0);
+    }
   }
 });
 
@@ -163,7 +194,7 @@ test('FORM modifiers (+4/+2/0/-2/-4) temporarily shift match strength and evolve
   assert.equal(shiftPlayerForm('EXCELLENT', 1), 'EXCELLENT');
   assert.equal(shiftPlayerForm('VERY_POOR', -1), 'VERY_POOR');
 
-  const rcb2016 = realRepo.getSquad('RCB', 2016);
+  const rcb2016 = realRepo.getSquad('RCB', 2016).filter((p) => p.hasRatings);
   const sampleXi: PlayerSeasonRecord[] = [
     ...rcb2016.filter((p) => p.role === 'BAT' || p.role === 'WK').slice(0, 5),
     ...rcb2016.filter((p) => p.role === 'AR').slice(0, 2),
@@ -171,10 +202,10 @@ test('FORM modifiers (+4/+2/0/-2/-4) temporarily shift match strength and evolve
   ];
   assert.equal(sampleXi.length, 11);
 
-  const kohli = rcb2016.find((p) => p.id === 'virat-kohli')!;
+  const kohli = rcb2016.find((p) => p.playerId === 'virat-kohli')!;
   const effCold = getEffectiveMatchRatings(kohli, 'VERY_POOR');
   assert.equal(effCold.battingRating, kohli.battingRating - 4);
-  assert.equal(kohli.overallRating, 97); // historical OVR untouched
+  assert.equal(kohli.overallRating, 88); // historical OVR untouched
 
   const normalForms: Record<string, PlayerForm> = {};
   const hotForms: Record<string, PlayerForm> = {};

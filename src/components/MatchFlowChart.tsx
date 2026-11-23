@@ -66,24 +66,24 @@ export function MatchFlowChart({
 
   const totalWickets = overHistory.reduce((s, o) => s + o.wickets, 0);
   const xTicks = [1, 3, 6, 9, 12, 15, 18, 20];
-  const strokeColor = '#F59E0B';
+  const strokeColor = '#22D36B';
 
   return (
     <div
       data-testid="match-flow-chart"
-      className="border border-white/15 bg-[#101F33] p-3 text-white"
+      className="border border-[#263039] bg-[#111820] p-3 text-[#F5F2EA]"
     >
       <div className="flex flex-wrap items-center justify-between gap-2 pb-2">
         <div>
-          <div className="font-mono text-[10px] font-bold tracking-wider text-[#F59E0B] uppercase">
+          <div className="font-mono text-[10px] font-bold tracking-wider text-[#F5B942] uppercase">
             INNINGS FLOW (D3) · {inningsLabel}
           </div>
-          <div className="font-display text-sm font-extrabold tracking-wide text-white uppercase">
+          <div className="font-display text-sm font-extrabold tracking-wide text-[#F5F2EA] uppercase">
             {teamName} — Runs Per Over &amp; Wickets
           </div>
         </div>
 
-        <div className="flex items-center gap-3 font-mono text-[10px] text-slate-300">
+        <div className="flex items-center gap-3 font-mono text-[10px] text-[#9DA8B3]">
           <span className="inline-flex items-center gap-1">
             <span
               className="inline-block h-2 w-4 rounded-[1px]"
@@ -94,7 +94,7 @@ export function MatchFlowChart({
           </span>
           <span className="inline-flex items-center gap-1">
             <span
-              className="inline-block h-2.5 w-2.5 rounded-full border border-white bg-[#EF4444]"
+              className="inline-block h-2.5 w-2.5 rounded-full border border-[#F5F2EA] bg-[#E44949]"
               aria-hidden="true"
             />
             Wicket ({totalWickets})
@@ -288,8 +288,8 @@ export function MatchFlowChart({
                     cx={cx}
                     cy={cy}
                     r={hasWicket ? (isSelected ? 6.5 : 5.2) : isSelected ? 4.8 : 3.2}
-                    fill={hasWicket ? '#EF4444' : strokeColor}
-                    stroke="#0D1B2A"
+                    fill={hasWicket ? '#E44949' : strokeColor}
+                    stroke="#0E1318"
                     strokeWidth={1.6}
                     data-testid={
                       hasWicket
@@ -321,23 +321,23 @@ export function MatchFlowChart({
       {activeOverData && (
         <div
           data-testid="d3-over-tooltip"
-          className="mt-1.5 flex flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-2 font-mono text-[10.5px] text-slate-200"
+          className="mt-1.5 flex flex-wrap items-center justify-between gap-2 border-t border-[#263039] pt-2 font-mono text-[10.5px] text-[#9DA8B3]"
         >
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-[2px] bg-[#F59E0B] px-1.5 py-0.5 font-extrabold text-[#141619]">
+            <span className="rounded-[2px] bg-[#F5B942] px-1.5 py-0.5 font-extrabold text-[#080B0D]">
               OV {activeOverData.overNumber}
             </span>
-            <span className="font-bold text-white">
+            <span className="font-bold text-[#F5F2EA]">
               {activeOverData.runs} run{activeOverData.runs === 1 ? '' : 's'}
               {activeOverData.wickets > 0 && (
-                <span className="text-[#FCA5A5]">
+                <span className="text-[#F87171]">
                   {' '}
                   · {activeOverData.wickets} wkt{activeOverData.wickets > 1 ? 's' : ''}
                 </span>
               )}
             </span>
-            <span className="text-slate-400">by {activeOverData.bowlerName}</span>
-            <span className="text-emerald-300 tabular-nums">
+            <span className="text-[#9DA8B3]">by {activeOverData.bowlerName}</span>
+            <span className="text-[#22D36B] tabular-nums">
               Total {activeOverData.cumulativeRuns}/{activeOverData.cumulativeWickets}
             </span>
           </div>
@@ -347,12 +347,12 @@ export function MatchFlowChart({
                 key={`${activeOverData.overNumber}-${idx}`}
                 className={`inline-flex h-5 min-w-[20px] items-center justify-center rounded-[2px] px-1 text-[9.5px] font-extrabold ${
                   ball === 'W'
-                    ? 'bg-[#EF4444] text-white'
+                    ? 'bg-[#E44949] text-white'
                     : ball === '6'
-                      ? 'bg-[#6D28D9] text-white'
+                      ? 'bg-[#F05A32] text-[#080B0D]'
                       : ball === '4'
-                        ? 'bg-[#157F3D] text-white'
-                        : 'bg-white/10 text-slate-200'
+                        ? 'bg-[#22D36B] text-[#06110A]'
+                        : 'bg-[#0E1318] text-[#F5F2EA]'
                 }`}
               >
                 {ball === '0' ? '•' : ball}

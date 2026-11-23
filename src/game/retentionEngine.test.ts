@@ -22,10 +22,7 @@ import {
 import { JsonIplRepository, parseIplDatabase } from '../data/playerRepository';
 import type { IplDatabaseJson } from '../types/game';
 
-const dbPath = path.resolve(
-  process.cwd(),
-  'public/assets/aistudio/ipl_database_final_ba929b5d.json'
-);
+const dbPath = path.resolve(process.cwd(), 'public/impact_player_database.json');
 const rawDbJson = JSON.parse(fs.readFileSync(dbPath, 'utf8')) as IplDatabaseJson;
 const realRepo = new JsonIplRepository(parseIplDatabase(rawDbJson));
 
@@ -155,10 +152,22 @@ test('₹0.5 Cr minimum purse reserve per remaining position blocks overspending
   // At 0/15, 14 positions remain after this pick -> min reserve = 14 * 0.5 = ₹7.0 Cr
   // With ₹20 Cr purse, max spend on pick 1 is ₹13.0 Cr
   const expensive = realRepo.getSquad('RCB', 2016)[0];
-  const at8Cr = { ...expensive, id: 'p_8', playerId: 'p_8', priceCr: 8 };
+  const at8Cr = {
+    ...expensive,
+    id: 'p_8',
+    playerId: 'p_8',
+    salary: { salaryCr: 8, verified: true },
+    priceCr: 8,
+  };
   assert.equal(canSelectPlayer(state, at8Cr).allowed, true);
 
-  const at14Cr = { ...expensive, id: 'p_14', playerId: 'p_14', priceCr: 14 };
+  const at14Cr = {
+    ...expensive,
+    id: 'p_14',
+    playerId: 'p_14',
+    salary: { salaryCr: 14, verified: true },
+    priceCr: 14,
+  };
   const reserveBlocked = canSelectPlayer(state, at14Cr);
   assert.equal(reserveBlocked.allowed, false);
   assert.equal(reserveBlocked.reason, 'INSUFFICIENT_PURSE');

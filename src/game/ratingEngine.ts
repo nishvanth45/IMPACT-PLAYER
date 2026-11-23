@@ -1019,6 +1019,125 @@ function generateAttributesForRecord(params: {
   };
 }
 
+function generateAttributesAnchoredToRatings(params: {
+  playerId: string;
+  season: number;
+  franchise: FranchiseCode;
+  role: PlayerRole;
+  battingRating: number;
+  bowlingRating: number;
+  impactRating: number;
+  overallRating: number;
+}): PlayerDetailedAttributes {
+  const {
+    playerId,
+    season,
+    franchise,
+    role,
+    battingRating,
+    bowlingRating,
+    impactRating,
+    overallRating,
+  } = params;
+  const curated = CURATED_PLAYERS[playerId];
+  const seasonKey = `${playerId}:${season}:${franchise}`;
+
+  const batStyle: BatterArchetype =
+    curated?.batStyle ??
+    (['ANCHOR', 'OPENER', 'FINISHER', 'ALL_PHASE'][
+      fnv1a32(`bat-style:${playerId}`) % 4
+    ] as BatterArchetype);
+
+  const bowlStyle: BowlerArchetype =
+    curated?.bowlStyle ??
+    (['DEATH_EXPRESS', 'POWERPLAY_SWING', 'STRIKE_SPINNER', 'CONTAINMENT'][
+      fnv1a32(`bowl-style:${playerId}`) % 4
+    ] as BowlerArchetype);
+
+  const batAttr = (key: string, styleBias = 0): number =>
+    clampRating(battingRating + styleBias + seededOffset(`b:${key}:${seasonKey}`, 3.5));
+
+  const bowlAttr = (key: string, styleBias = 0): number =>
+    clampRating(bowlingRating + styleBias + seededOffset(`bw:${key}:${seasonKey}`, 3.5));
+
+  const batting: BattingAttributes = {
+    power: batAttr('power', batStyle === 'FINISHER' ? 5 : batStyle === 'OPENER' ? 3 : -1),
+    timing: batAttr('timing', batStyle === 'ANCHOR' ? 4 : 1),
+    technique: batAttr('technique', batStyle === 'ANCHOR' ? 4 : batStyle === 'FINISHER' ? -2 : 1),
+    strikeRotation: batAttr('strikeRotation', batStyle === 'ANCHOR' ? 4 : 0),
+    paceHitting: batAttr('paceHitting', batStyle === 'OPENER' ? 3 : 0),
+    spinHitting: batAttr('spinHitting', batStyle === 'ALL_PHASE' ? 3 : 0),
+    powerplay: batAttr('powerplay', batStyle === 'OPENER' ? 5 : batStyle === 'FINISHER' ? -3 : 1),
+    middleOvers: batAttr('middleOvers', batStyle === 'ANCHOR' ? 4 : 1),
+    deathOvers: batAttr('deathOvers', batStyle === 'FINISHER' ? 6 : batStyle === 'OPENER' ? -3 : 1),
+    chase: batAttr('chase', batStyle === 'ANCHOR' || batStyle === 'FINISHER' ? 4 : 0),
+    pressure: batAttr('pressure', batStyle === 'FINISHER' ? 4 : 1),
+    finishing: batAttr('finishing', batStyle === 'FINISHER' ? 6 : batStyle === 'OPENER' ? -3 : 0),
+  };
+
+  const bowling: BowlingAttributes = {
+    wicketTaking: bowlAttr(
+      'wicketTaking',
+      bowlStyle === 'STRIKE_SPINNER' || bowlStyle === 'DEATH_EXPRESS' ? 4 : -1
+    ),
+    economy: bowlAttr('economy', bowlStyle === 'CONTAINMENT' ? 4 : 0),
+    powerplayBowling: bowlAttr(
+      'powerplayBowling',
+      bowlStyle === 'POWERPLAY_SWING' ? 5 : bowlStyle === 'DEATH_EXPRESS' ? -2 : 0
+    ),
+    middleOversBowling: bowlAttr(
+      'middleOversBowling',
+      bowlStyle === 'STRIKE_SPINNER' || bowlStyle === 'CONTAINMENT' ? 4 : -1
+    ),
+    deathBowling: bowlAttr(
+      'deathBowling',
+      bowlStyle === 'DEATH_EXPRESS' ? 6 : bowlStyle === 'STRIKE_SPINNER' ? -3 : 0
+    ),
+    control: bowlAttr('control', bowlStyle === 'CONTAINMENT' ? 4 : 1),
+    variation: bowlAttr('variation', bowlStyle === 'STRIKE_SPINNER' || bowlStyle === 'DEATH_EXPRESS' ? 4 : 0),
+    pressure: bowlAttr('pressure', bowlStyle === 'DEATH_EXPRESS' ? 4 : 1),
+  };
+
+  const baseOther = role === 'AR' ? Math.max(battingRating, bowlingRating, overallRating) : overallRating;
+  const other: OtherAttributes = {
+    fielding: clampRating(58 + seededUnit(`fld:${playerId}`) * 32 + seededOffset(`fld-s:${seasonKey}`, 3)),
+    captaincy: clampRating(
+      curated?.leadership ?? 42 + seededUnit(`cap:${playerId}`) * 44
+    ),
+    consistency: clampRating(baseOther + seededOffset(`con:${seasonKey}`, 4)),
+    fitness: clampRating(62 + seededUnit(`fit:${playerId}`) * 30 + seededOffset(`fit-s:${seasonKey}`, 4)),
+    impactAbility: clampRating(impactRating + seededOffset(`ia:${seasonKey}`, 2.5)),
+  };
+
+  return { batting, bowling, other };
+}
+
+export function buildAttributesForStoredRatings(params: {
+  playerId: string;
+  season: number;
+  franchise: FranchiseCode;
+  role: PlayerRole;
+  battingRating: number;
+  bowlingRating: number;
+  impactRating: number;
+  overallRating: number;
+  rawAttributes?: PlayerDetailedAttributes;
+}): PlayerDetailedAttributes {
+  if (params.rawAttributes) {
+    return params.rawAttributes;
+  }
+  return generateAttributesAnchoredToRatings({
+    playerId: params.playerId,
+    season: params.season,
+    franchise: params.franchise,
+    role: params.role,
+    battingRating: clampRating(params.battingRating),
+    bowlingRating: clampRating(params.bowlingRating),
+    impactRating: clampRating(params.impactRating),
+    overallRating: clampRating(params.overallRating),
+  });
+}
+
 export function resolvePlayerRatings(params: {
   playerId: string;
   season: number;
@@ -1027,6 +1146,7 @@ export function resolvePlayerRatings(params: {
   matches: number;
   priceCr: number;
   ratingStatus: 'FINAL' | 'PROVISIONAL';
+  hasExplicitRatings?: boolean;
   rawBattingRating: number;
   rawBowlingRating: number;
   rawImpactRating?: number;
@@ -1040,28 +1160,22 @@ export function resolvePlayerRatings(params: {
   overallRating: number;
   ratingBand: RatingBand;
 } {
-  const generated = generateAttributesForRecord({
-    playerId: params.playerId,
-    season: params.season,
-    franchise: params.franchise,
-    role: params.role,
-    matches: params.matches,
-    priceCr: params.priceCr,
-  });
-
-  if (params.ratingStatus === 'FINAL') {
-    const attributes = params.rawAttributes ?? generated.attributes;
+  if (params.hasExplicitRatings) {
     const battingRating = clampRating(params.rawBattingRating);
     const bowlingRating = clampRating(params.rawBowlingRating);
-    const impactRating = clampRating(
-      params.rawImpactRating ?? computeImpactRatingFromAttributes(attributes, params.role)
-    );
-    const overallRating = calculateRoleOverallRating(
-      params.role,
+    const overallRating = clampRating(params.rawOverallRating);
+    const impactRating = clampRating(params.rawImpactRating ?? overallRating);
+    const attributes = buildAttributesForStoredRatings({
+      playerId: params.playerId,
+      season: params.season,
+      franchise: params.franchise,
+      role: params.role,
       battingRating,
       bowlingRating,
-      impactRating
-    );
+      impactRating,
+      overallRating,
+      rawAttributes: params.rawAttributes,
+    });
     return {
       attributes,
       battingRating,
@@ -1072,8 +1186,26 @@ export function resolvePlayerRatings(params: {
     };
   }
 
+  // Never fabricate ratings in React when database record has no stored ratings.
+  // Keep numeric fields at 0 (displayed as incomplete) and anchor internal engine attributes to baseline.
+  const attributes = buildAttributesForStoredRatings({
+    playerId: params.playerId,
+    season: params.season,
+    franchise: params.franchise,
+    role: params.role,
+    battingRating: RATING_MIN,
+    bowlingRating: RATING_MIN,
+    impactRating: RATING_MIN,
+    overallRating: RATING_MIN,
+    rawAttributes: params.rawAttributes,
+  });
+
   return {
-    ...generated,
-    ratingBand: getRatingBand(generated.overallRating),
+    attributes,
+    battingRating: 0,
+    bowlingRating: 0,
+    impactRating: 0,
+    overallRating: 0,
+    ratingBand: getRatingBand(RATING_MIN),
   };
 }

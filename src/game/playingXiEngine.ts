@@ -208,7 +208,7 @@ export function validatePlayingXI(
   const benchPlayers = squad.filter((p) => !xiSet.has(p.playerId));
 
   const overseasCount = xiPlayers.filter((p) => p.isOverseas === true).length;
-  const indianCount = xiPlayers.length - overseasCount;
+  const indianCount = xiPlayers.filter((p) => p.isOverseas === false).length;
   const wicketkeepersInXI = xiPlayers.filter((p) => p.role === 'WK');
 
   const errors: string[] = [];
@@ -310,7 +310,7 @@ export function calculateTeamSummary(
   );
 
   const overseasCount = xiPlayers.filter((p) => p.isOverseas === true).length;
-  const indianCount = xiPlayers.length - overseasCount;
+  const indianCount = xiPlayers.filter((p) => p.isOverseas === false).length;
 
   const captainName = xiPlayers.find((p) => p.playerId === captainId)?.playerName ?? null;
   const keeperName = xiPlayers.find((p) => p.playerId === wicketkeeperId)?.playerName ?? null;

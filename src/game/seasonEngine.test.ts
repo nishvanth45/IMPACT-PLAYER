@@ -23,10 +23,7 @@ import type {
   SeasonTeam,
 } from '../types/game';
 
-const dbPath = path.resolve(
-  process.cwd(),
-  'public/assets/aistudio/ipl_database_final_ba929b5d.json'
-);
+const dbPath = path.resolve(process.cwd(), 'public/impact_player_database.json');
 const rawDbJson = JSON.parse(fs.readFileSync(dbPath, 'utf8')) as IplDatabaseJson;
 const realRepo = new JsonIplRepository(parseIplDatabase(rawDbJson));
 

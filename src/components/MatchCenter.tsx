@@ -72,7 +72,16 @@ import type {
   SeasonTeamId,
   TossInfo,
 } from '../types/game';
+import {
+  classifyMatchResultPresentation,
+  detectMatchFeedback,
+  getChaseTensionState,
+  type MatchEventFlash,
+  type MatchMilestoneBanner,
+  type ResolvedAnimationPrefs,
+} from '../game/animationEngine';
 import { MatchFlowChart } from './MatchFlowChart';
+import { AnimatedNumber, FranchiseBadge } from './MotionPrimitives';
 import { RoleBadge } from './RoleBadge';
 
 const ACTIVE_MATCH_STORAGE_KEY = 'impact_player_active_match_v1';
@@ -115,8 +124,10 @@ interface MatchCenterProps {
   maxStandardOverseas?: number;
   simSpeed?: 'Normal' | 'Fast';
   difficulty?: CaptaincyDifficulty;
+  animationPrefs?: ResolvedAnimationPrefs;
   onAdjustPreMatchXI?: (nextXiState: PlayingXIState) => void;
   onCompleteMatch: (result: MatchResult) => void;
+  onCompleteToStandings?: (result: MatchResult) => void;
   onCancel: () => void;
   onInspectPlayer?: (player: PlayerSeasonRecord) => void;
 }
@@ -161,26 +172,26 @@ function applyImpactToTeamRoster<T extends { id: SeasonTeamId; players: PlayerSe
 function MatchupBadge({ matchup }: { matchup: MatchupRating }) {
   if (matchup === 'STRONG_MATCHUP') {
     return (
-      <span className="rounded-[2px] bg-[#DCFCE7] px-1.5 py-0.5 font-mono text-[9px] font-extrabold text-[#157F3D] uppercase">
+      <span className="rounded-[2px] border border-[#22D36B]/45 bg-[#0A2014] px-1.5 py-0.5 font-mono text-[9px] font-extrabold text-[#22D36B] uppercase">
         STRONG MATCHUP
       </span>
     );
   }
   if (matchup === 'RISKY_MATCHUP') {
     return (
-      <span className="rounded-[2px] bg-[#FEE2E2] px-1.5 py-0.5 font-mono text-[9px] font-extrabold text-[#B91C1C] uppercase">
+      <span className="rounded-[2px] border border-[#E44949]/50 bg-[#231012] px-1.5 py-0.5 font-mono text-[9px] font-extrabold text-[#F87171] uppercase">
         RISKY MATCHUP
       </span>
     );
   }
   return (
-    <span className="rounded-[2px] bg-[#F3F4F6] px-1.5 py-0.5 font-mono text-[9px] font-bold text-[#4A4E54] uppercase">
+    <span className="rounded-[2px] border border-[#263039] bg-[#111820] px-1.5 py-0.5 font-mono text-[9px] font-bold text-[#9DA8B3] uppercase">
       EVEN MATCHUP
     </span>
   );
 }
 
-function ScorecardPanel({
+export function ScorecardPanel({
   season,
   card,
   inningsLabel,
@@ -193,11 +204,11 @@ function ScorecardPanel({
 }) {
   const team = season.teams[card.teamId];
   return (
-    <div className="border-2 border-[#141619] bg-[#FAF8F3]">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-[#141619] bg-[#0D1B2A] px-3.5 py-2 text-white">
+    <div className="border border-[#263039] bg-[#0E1318]">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#263039] bg-[#111820] px-3.5 py-2 text-[#F5F2EA]">
         <div className="flex items-center gap-2">
           <span
-            className="inline-block h-3 w-3 shrink-0 rounded-[2px]"
+            className="inline-block h-3 w-3 shrink-0 rounded-[2px] border border-white/15"
             style={{ backgroundColor: team.primaryColor }}
             aria-hidden="true"
           />
@@ -205,12 +216,12 @@ function ScorecardPanel({
             {inningsLabel}: {team.name}
           </span>
           {targetRuns && (
-            <span className="font-mono text-[10px] text-slate-300">
+            <span className="font-mono text-[10px] text-[#9DA8B3]">
               (Target {targetRuns})
             </span>
           )}
         </div>
-        <div className="font-mono text-sm font-extrabold tabular-nums">
+        <div className="font-mono text-sm font-extrabold text-[#22D36B] tabular-nums">
           {card.runs}/{card.wickets} ({formatOversDisplay(card.overs)} ov · RR {card.runRate})
         </div>
       </div>
@@ -219,14 +230,14 @@ function ScorecardPanel({
       {card.phaseSplits && card.phaseSplits.length > 0 && (
         <div
           data-testid="scorecard-phase-splits"
-          className="grid grid-cols-3 divide-x divide-[#141619]/15 border-b border-[#141619]/20 bg-[#F4EFE4] font-mono text-[10.5px]"
+          className="grid grid-cols-3 divide-x divide-[#263039] border-b border-[#263039] bg-[#080B0D] font-mono text-[10.5px]"
         >
           {card.phaseSplits.map((ph) => (
             <div key={ph.phase} className="px-2.5 py-1.5">
-              <div className="font-bold text-[#4A4E54] uppercase">{ph.label}</div>
-              <div className="mt-0.5 font-extrabold text-[#141619] tabular-nums">
+              <div className="font-bold text-[#9DA8B3] uppercase">{ph.label}</div>
+              <div className="mt-0.5 font-extrabold text-[#F5F2EA] tabular-nums">
                 {ph.runs}/{ph.wickets}{' '}
-                <span className="font-normal text-[#4A4E54]">
+                <span className="font-normal text-[#9DA8B3]">
                   (RR {ph.runRate.toFixed(1)})
                 </span>
               </div>
@@ -239,7 +250,7 @@ function ScorecardPanel({
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-left text-xs">
           <thead>
-            <tr className="border-b border-[#141619]/20 bg-[#EFE9DC] font-mono text-[10px] font-bold text-[#4A4E54] uppercase">
+            <tr className="border-b border-[#263039] bg-[#111820]/70 font-mono text-[10px] font-bold text-[#9DA8B3] uppercase">
               <th className="px-3 py-1.5">Batter</th>
               <th className="px-2 py-1.5">Dismissal</th>
               <th className="px-2 py-1.5 text-right">R</th>
@@ -249,41 +260,41 @@ function ScorecardPanel({
               <th className="px-3 py-1.5 text-right">SR</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[#141619]/10 bg-white">
+          <tbody className="divide-y divide-[#263039] bg-[#0E1318]">
             {card.batting.map((b) => (
-              <tr key={b.playerId}>
-                <td className="px-3 py-1.5 font-bold text-[#141619]">
+              <tr key={b.playerId} className="hover:bg-[#111820]">
+                <td className="px-3 py-1.5 font-bold text-[#F5F2EA]">
                   <span className="inline-flex items-center gap-1.5">
                     <span>{b.playerName}</span>
                     {b.isImpactIn && (
-                      <span className="rounded-[2px] bg-[#6D28D9] px-1 py-0.2 font-mono text-[8.5px] font-extrabold text-white">
+                      <span className="rounded-[2px] border border-[#F05A32]/50 bg-[#23120D] px-1 py-0.2 font-mono text-[8.5px] font-extrabold text-[#F05A32]">
                         IMP
                       </span>
                     )}
                     {b.isSubbedOut && (
-                      <span className="rounded-[2px] bg-[#4A4E54] px-1 py-0.2 font-mono text-[8.5px] font-extrabold text-white">
+                      <span className="rounded-[2px] border border-[#263039] bg-[#111820] px-1 py-0.2 font-mono text-[8.5px] font-extrabold text-[#9DA8B3]">
                         SUB
                       </span>
                     )}
                   </span>
                 </td>
-                <td className="px-2 py-1.5 text-[11px] text-[#4A4E54]">
-                  {b.out ? b.dismissalText : <span className="font-semibold text-[#157F3D]">not out</span>}
+                <td className="px-2 py-1.5 text-[11px] text-[#9DA8B3]">
+                  {b.out ? b.dismissalText : <span className="font-semibold text-[#22D36B]">not out</span>}
                 </td>
-                <td className="px-2 py-1.5 text-right font-mono font-extrabold text-[#141619] tabular-nums">
+                <td className="px-2 py-1.5 text-right font-mono font-extrabold text-[#F5F2EA] tabular-nums">
                   {b.runs}
                   {!b.out ? '*' : ''}
                 </td>
-                <td className="px-2 py-1.5 text-right font-mono text-[#4A4E54] tabular-nums">
+                <td className="px-2 py-1.5 text-right font-mono text-[#9DA8B3] tabular-nums">
                   {b.balls}
                 </td>
-                <td className="hidden px-2 py-1.5 text-right font-mono text-[#4A4E54] tabular-nums sm:table-cell">
+                <td className="hidden px-2 py-1.5 text-right font-mono text-[#9DA8B3] tabular-nums sm:table-cell">
                   {b.fours}
                 </td>
-                <td className="hidden px-2 py-1.5 text-right font-mono text-[#4A4E54] tabular-nums sm:table-cell">
+                <td className="hidden px-2 py-1.5 text-right font-mono text-[#9DA8B3] tabular-nums sm:table-cell">
                   {b.sixes}
                 </td>
-                <td className="px-3 py-1.5 text-right font-mono text-[#4A4E54] tabular-nums">
+                <td className="px-3 py-1.5 text-right font-mono text-[#9DA8B3] tabular-nums">
                   {b.strikeRate.toFixed(1)}
                 </td>
               </tr>
@@ -293,7 +304,7 @@ function ScorecardPanel({
       </div>
 
       {/* Extras & Fall of Wickets */}
-      <div className="border-t border-[#141619]/15 bg-[#FAF8F3] px-3 py-1.5 font-mono text-[10.5px] text-[#4A4E54]">
+      <div className="border-t border-[#263039] bg-[#111820]/60 px-3 py-1.5 font-mono text-[10.5px] text-[#9DA8B3]">
         <div>
           Extras: {card.extras}
           {card.extrasBreakdown
@@ -302,8 +313,8 @@ function ScorecardPanel({
           · Total: {card.runs}/{card.wickets} ({formatOversDisplay(card.overs)} ov)
         </div>
         {card.fallOfWickets && card.fallOfWickets.length > 0 && (
-          <div className="mt-0.5 text-[10px] leading-snug text-[#4A4E54]">
-            <span className="font-bold text-[#141619]">FoW:</span>{' '}
+          <div className="mt-0.5 text-[10px] leading-snug text-[#9DA8B3]">
+            <span className="font-bold text-[#F5F2EA]">FoW:</span>{' '}
             {card.fallOfWickets
               .map((f) => `${f.wicketNumber}-${f.runs} (${f.batterName.split(' ').slice(-1)[0]}, ${f.overLabel})`)
               .join(' · ')}
@@ -312,10 +323,10 @@ function ScorecardPanel({
       </div>
 
       {/* Bowling Table (BOWLER | O | M | R | W | ECON + Dots/Extras detail) */}
-      <div className="overflow-x-auto border-t border-[#141619]/25">
+      <div className="overflow-x-auto border-t border-[#263039]">
         <table className="w-full border-collapse text-left text-xs">
           <thead>
-            <tr className="border-b border-[#141619]/20 bg-[#EFE9DC] font-mono text-[10px] font-bold text-[#4A4E54] uppercase">
+            <tr className="border-b border-[#263039] bg-[#111820]/70 font-mono text-[10px] font-bold text-[#9DA8B3] uppercase">
               <th className="px-3 py-1.5">Bowler</th>
               <th className="px-2 py-1.5 text-right">O</th>
               <th className="px-2 py-1.5 text-right">M</th>
@@ -324,42 +335,42 @@ function ScorecardPanel({
               <th className="px-3 py-1.5 text-right">ECON</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[#141619]/10 bg-white">
+          <tbody className="divide-y divide-[#263039] bg-[#0E1318]">
             {card.bowling.map((bw) => (
-              <tr key={bw.playerId}>
+              <tr key={bw.playerId} className="hover:bg-[#111820]">
                 <td className="px-3 py-1.5">
-                  <div className="flex flex-wrap items-center gap-1.5 font-bold text-[#141619]">
+                  <div className="flex flex-wrap items-center gap-1.5 font-bold text-[#F5F2EA]">
                     <span>{bw.playerName}</span>
                     {bw.isImpactIn && (
-                      <span className="rounded-[2px] bg-[#6D28D9] px-1 py-0.2 font-mono text-[8.5px] font-extrabold text-white">
+                      <span className="rounded-[2px] border border-[#F05A32]/50 bg-[#23120D] px-1 py-0.2 font-mono text-[8.5px] font-extrabold text-[#F05A32]">
                         IMP
                       </span>
                     )}
                     {bw.isSubbedOut && (
-                      <span className="rounded-[2px] bg-[#4A4E54] px-1 py-0.2 font-mono text-[8.5px] font-extrabold text-white">
+                      <span className="rounded-[2px] border border-[#263039] bg-[#111820] px-1 py-0.2 font-mono text-[8.5px] font-extrabold text-[#9DA8B3]">
                         SUB
                       </span>
                     )}
                   </div>
                   {(bw.dots !== undefined || bw.wides !== undefined) && (
-                    <div className="font-mono text-[9.5px] text-[#4A4E54]">
+                    <div className="font-mono text-[9.5px] text-[#9DA8B3]">
                       Dots {bw.dots ?? 0} · 4s {bw.foursConceded ?? 0} · 6s {bw.sixesConceded ?? 0} · Wd {bw.wides ?? 0} · NB {bw.noBalls ?? 0}
                     </div>
                   )}
                 </td>
-                <td className="px-2 py-1.5 text-right font-mono text-[#4A4E54] tabular-nums">
+                <td className="px-2 py-1.5 text-right font-mono text-[#9DA8B3] tabular-nums">
                   {formatOversDisplay(bw.overs)}
                 </td>
-                <td className="px-2 py-1.5 text-right font-mono text-[#4A4E54] tabular-nums">
+                <td className="px-2 py-1.5 text-right font-mono text-[#9DA8B3] tabular-nums">
                   {bw.maidens ?? 0}
                 </td>
-                <td className="px-2 py-1.5 text-right font-mono text-[#4A4E54] tabular-nums">
+                <td className="px-2 py-1.5 text-right font-mono text-[#9DA8B3] tabular-nums">
                   {bw.runsConceded}
                 </td>
-                <td className="px-2 py-1.5 text-right font-mono font-extrabold text-[#141619] tabular-nums">
+                <td className="px-2 py-1.5 text-right font-mono font-extrabold text-[#22D36B] tabular-nums">
                   {bw.wickets}
                 </td>
-                <td className="px-3 py-1.5 text-right font-mono text-[#4A4E54] tabular-nums">
+                <td className="px-3 py-1.5 text-right font-mono text-[#9DA8B3] tabular-nums">
                   {bw.economy.toFixed(2)}
                 </td>
               </tr>
@@ -380,11 +391,19 @@ export function MatchCenter({
   maxStandardOverseas = 4,
   simSpeed = 'Normal',
   difficulty = 'STANDARD',
+  animationPrefs,
   onAdjustPreMatchXI,
   onCompleteMatch,
+  onCompleteToStandings,
   onCancel,
   onInspectPlayer,
 }: MatchCenterProps) {
+  const isFinalMatch =
+    matchContext.type === 'PLAYOFF' && matchContext.playoff.id === 'FINAL';
+  const matchAnimsOn = animationPrefs ? animationPrefs.matchAnimationsEnabled : true;
+  const animateNumbers = animationPrefs ? animationPrefs.isFull : true;
+  const isAnimOff = animationPrefs ? animationPrefs.isOff : false;
+
   const matchId =
     matchContext.type === 'LEAGUE' ? matchContext.fixture.id : matchContext.playoff.id;
 
@@ -516,7 +535,40 @@ export function MatchCenter({
   const [draftXiState, setDraftXiState] = useState<PlayingXIState | null>(null);
   const [swapPickXiId, setSwapPickXiId] = useState<string | null>(null);
 
+  // Purely visual broadcast feedback state (never affects RNG, outcomes, or persistence)
+  const [isTossFlipping, setIsTossFlipping] = useState(false);
+  const tossTimerRef = useRef<number | null>(null);
+  const [eventFlash, setEventFlash] = useState<MatchEventFlash | null>(null);
+  const flashTimerRef = useRef<number | null>(null);
+  const [milestoneBanners, setMilestoneBanners] = useState<MatchMilestoneBanner[]>([]);
+  const milestoneTimerRef = useRef<number | null>(null);
+  const [impactReveal, setImpactReveal] = useState<{
+    outName: string;
+    inName: string;
+    wasFifthOverseas: boolean;
+  } | null>(null);
+  const impactRevealTimerRef = useRef<number | null>(null);
+  const [championsOverlayDismissed, setChampionsOverlayDismissed] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (tossTimerRef.current !== null) window.clearTimeout(tossTimerRef.current);
+      if (flashTimerRef.current !== null) window.clearTimeout(flashTimerRef.current);
+      if (milestoneTimerRef.current !== null) window.clearTimeout(milestoneTimerRef.current);
+      if (impactRevealTimerRef.current !== null) window.clearTimeout(impactRevealTimerRef.current);
+    };
+  }, []);
+
   const activeInningsState = inningsNumber === 1 ? inn1State : inn2State;
+  const chaseTension = getChaseTensionState(activeInningsState);
+  const scoreboardEdgeClass =
+    eventFlash?.kind === 'WICKET'
+      ? 'ip-edge-wicket border-[#E44949]'
+      : eventFlash?.kind === 'SIX'
+        ? 'ip-edge-six border-[#22D36B]'
+        : eventFlash?.kind === 'FOUR'
+          ? 'ip-edge-four border-[#22D36B]'
+          : 'border-[#263039]';
   const isUserBowlingNow = Boolean(
     activeInningsState && activeInningsState.bowlingTeam.id === 'YOU'
   );
@@ -696,6 +748,28 @@ export function MatchCenter({
     nextState: InteractiveInningsState,
     overSummary: OverSummaryLine | null
   ) => {
+    const prevState = inningsNumber === 1 ? inn1State : inn2State;
+
+    if (matchAnimsOn && prevState) {
+      const feedback = detectMatchFeedback(prevState, nextState, overSummary);
+      if (feedback.flash) {
+        setEventFlash(feedback.flash);
+        if (flashTimerRef.current !== null) window.clearTimeout(flashTimerRef.current);
+        flashTimerRef.current = window.setTimeout(() => {
+          setEventFlash(null);
+          flashTimerRef.current = null;
+        }, feedback.flash.durationMs);
+      }
+      if (feedback.milestones.length > 0) {
+        setMilestoneBanners(feedback.milestones);
+        if (milestoneTimerRef.current !== null) window.clearTimeout(milestoneTimerRef.current);
+        milestoneTimerRef.current = window.setTimeout(() => {
+          setMilestoneBanners([]);
+          milestoneTimerRef.current = null;
+        }, 1750);
+      }
+    }
+
     if (overSummary) {
       setLastOverSummary(overSummary);
     }
@@ -858,11 +932,28 @@ export function MatchCenter({
     activeInningsState?.isCompleted,
   ]);
 
+  const skipTossAnimation = () => {
+    if (tossTimerRef.current !== null) {
+      window.clearTimeout(tossTimerRef.current);
+      tossTimerRef.current = null;
+    }
+    setIsTossFlipping(false);
+  };
+
   const handleCallToss = (call: 'HEADS' | 'TAILS') => {
     const resolved = withMatchRng((rng) =>
       resolveToss('YOU', opponentTeam.id, call, pitchCondition, rng)
     );
+    // Commit deterministic toss outcome immediately; coin flip is purely visual
     setToss(resolved);
+    if (matchAnimsOn && !isAnimOff) {
+      setIsTossFlipping(true);
+      if (tossTimerRef.current !== null) window.clearTimeout(tossTimerRef.current);
+      tossTimerRef.current = window.setTimeout(() => {
+        setIsTossFlipping(false);
+        tossTimerRef.current = null;
+      }, 920);
+    }
   };
 
   const handleUserDecision = (decision: 'BAT' | 'BOWL') => {
@@ -968,10 +1059,27 @@ export function MatchCenter({
     setImpactSub(sub);
     setImpactInPlayer(selectedInPlayer);
 
+    const triggerImpactOverlay = () => {
+      if (!matchAnimsOn || isAnimOff) return;
+      setImpactReveal({
+        outName: selectedOutPlayer.playerName,
+        inName: selectedInPlayer.playerName,
+        wasFifthOverseas: impactEligibility.wasFifthOverseas,
+      });
+      if (impactRevealTimerRef.current !== null) {
+        window.clearTimeout(impactRevealTimerRef.current);
+      }
+      impactRevealTimerRef.current = window.setTimeout(() => {
+        setImpactReveal(null);
+        impactRevealTimerRef.current = null;
+      }, 1050);
+    };
+
     // If paused at Inn 1 break, transition into Inn 2 with Impact sub applied immediately
     if (inningsNumber === 1 && inn1State?.isCompleted) {
       beginSecondInningsFromFirst(inn1State, sub, selectedInPlayer);
       setStage('LIVE');
+      triggerImpactOverlay();
       return;
     }
 
@@ -985,6 +1093,7 @@ export function MatchCenter({
       if (inningsNumber === 1) setInn1State(updated);
       else setInn2State(updated);
       setStage('LIVE');
+      triggerImpactOverlay();
       setIsAutoStepping(updated.battingTeam.id === 'YOU' || bowlingMode === 'AUTO');
     }
   };
@@ -1039,15 +1148,15 @@ export function MatchCenter({
       className="mx-auto w-full max-w-5xl px-4 py-4 pb-24 md:pb-12"
     >
       {/* Top Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-2 border-[#141619] bg-[#FAF8F3] px-4 py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2 border border-[#263039] bg-[#0E1318] px-4 py-2.5">
         <div className="flex flex-wrap items-center gap-2.5">
-          <span className="rounded-[2px] bg-[#D94E28] px-2 py-0.5 font-mono text-[11px] font-extrabold text-white uppercase">
+          <span className="rounded-[2px] border border-[#F05A32]/50 bg-[#23120D] px-2 py-0.5 font-mono text-[11px] font-extrabold text-[#F05A32] uppercase">
             {matchLabel}
           </span>
-          <span className="font-display text-lg font-extrabold tracking-wide text-[#141619] uppercase sm:text-xl">
+          <span className="font-display text-lg font-extrabold tracking-wide text-[#F5F2EA] uppercase sm:text-xl">
             {userTeam.name} vs {opponentTeam.name}
           </span>
-          <span className="rounded-[2px] border border-[#141619]/20 bg-white px-2 py-0.5 font-mono text-[10px] font-bold text-[#4A4E54] uppercase">
+          <span className="rounded-[2px] border border-[#263039] bg-[#111820] px-2 py-0.5 font-mono text-[10px] font-bold text-[#9DA8B3] uppercase">
             {SIM_CONFIG.difficultyAI[difficulty].label} AI
           </span>
         </div>
@@ -1055,7 +1164,7 @@ export function MatchCenter({
         <button
           type="button"
           onClick={onCancel}
-          className="inline-flex min-h-[34px] items-center gap-1.5 rounded-[2px] border border-[#141619] bg-white px-3 py-1 font-mono text-[11px] font-bold text-[#141619] uppercase hover:bg-[#EAE3D5]"
+          className="inline-flex min-h-[34px] items-center gap-1.5 rounded-[2px] border border-[#263039] bg-[#111820] px-3 py-1 font-mono text-[11px] font-bold text-[#F5F2EA] uppercase transition-colors hover:border-[#22D36B]/60"
         >
           <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
           <span>Back to Season</span>
@@ -1066,56 +1175,116 @@ export function MatchCenter({
       {stage === 'PRE_MATCH' && (
         <div
           data-testid="match-pre-toss"
-          className="mt-4 border-2 border-[#141619] bg-[#FAF8F3] shadow-[4px_4px_0px_#141619]"
+          className="mt-4 border border-[#263039] bg-[#0E1318]"
         >
-          <div className="border-b-2 border-[#141619] bg-[#0D1B2A] px-5 py-4 text-white">
+          {/* Elevated FINAL Championship Presentation Header */}
+          {isFinalMatch && (() => {
+            const homeRow = season.pointsTable.find((r) => r.teamId === homeTeam.id);
+            const awayRow = season.pointsTable.find((r) => r.teamId === awayTeam.id);
+            return (
+              <div
+                data-testid="final-prematch-banner"
+                className="ip-result-reveal border-b border-[#F5B942]/45 bg-[#080B0D] px-5 py-4 text-[#F5F2EA]"
+              >
+                <div className="flex items-center justify-center gap-2 font-mono text-[10.5px] font-extrabold tracking-[0.22em] text-[#F5B942] uppercase">
+                  <Trophy className="h-3.5 w-3.5 text-[#F5B942]" aria-hidden="true" />
+                  <span>SEASON {season.seasonNumber} · CHAMPIONSHIP FINAL</span>
+                  <Trophy className="h-3.5 w-3.5 text-[#F5B942]" aria-hidden="true" />
+                </div>
+                <div className="mt-3 flex flex-wrap items-center justify-center gap-4 sm:gap-7">
+                  <div className="flex items-center gap-2.5">
+                    <FranchiseBadge
+                      code={homeTeam.code}
+                      primaryColor={homeTeam.primaryColor}
+                      secondaryColor="#F5B942"
+                      size="lg"
+                    />
+                    <div>
+                      <div className="font-display text-xl font-extrabold uppercase">
+                        {homeTeam.name}
+                      </div>
+                      <div className="font-mono text-[10.5px] text-[#9DA8B3] tabular-nums">
+                        {homeRow ? `${homeRow.won}W-${homeRow.lost}L · ${homeRow.points} PTS` : 'FINALIST'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <span className="font-display text-2xl font-extrabold text-[#F05A32]">VS</span>
+
+                  <div className="flex items-center gap-2.5">
+                    <FranchiseBadge
+                      code={awayTeam.code}
+                      primaryColor={awayTeam.primaryColor}
+                      secondaryColor="#F5B942"
+                      size="lg"
+                    />
+                    <div>
+                      <div className="font-display text-xl font-extrabold uppercase">
+                        {awayTeam.name}
+                      </div>
+                      <div className="font-mono text-[10.5px] text-[#9DA8B3] tabular-nums">
+                        {awayRow ? `${awayRow.won}W-${awayRow.lost}L · ${awayRow.points} PTS` : 'FINALIST'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-2 text-center font-mono text-[10.5px] text-[#9DA8B3]">
+                  {venue}
+                </div>
+              </div>
+            );
+          })()}
+
+          <div className="border-b border-[#263039] bg-[#111820] px-5 py-4 text-[#F5F2EA]">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="font-mono text-[11px] font-bold tracking-widest text-[#F59E0B] uppercase">
-                PRE-MATCH CENTER · PITCH &amp; VENUE CONDITIONS
+              <span className="font-mono text-[11px] font-bold tracking-widest text-[#F5B942] uppercase">
+                {isFinalMatch
+                  ? 'FINAL PRE-MATCH BRIEF · PITCH & VENUE CONDITIONS'
+                  : 'PRE-MATCH CENTER · PITCH & VENUE CONDITIONS'}
               </span>
-              <span className="inline-flex items-center gap-1 font-mono text-[11px] text-slate-300">
-                <MapPin className="h-3.5 w-3.5 text-[#D94E28]" aria-hidden="true" />
+              <span className="inline-flex items-center gap-1 font-mono text-[11px] text-[#9DA8B3]">
+                <MapPin className="h-3.5 w-3.5 text-[#F05A32]" aria-hidden="true" />
                 {venue}
               </span>
             </div>
 
             <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div className="border border-white/15 bg-white/5 px-3.5 py-2.5">
-                <div className="font-mono text-[10px] text-slate-400 uppercase">VENUE</div>
-                <div className="mt-0.5 font-display text-lg font-extrabold uppercase">
+              <div className="border border-[#263039] bg-[#0E1318] px-3.5 py-2.5">
+                <div className="font-mono text-[10px] text-[#9DA8B3] uppercase">VENUE</div>
+                <div className="mt-0.5 font-display text-lg font-extrabold text-[#F5F2EA] uppercase">
                   {venue}
                 </div>
-                <div className="mt-1 font-mono text-[10.5px] text-slate-300">
+                <div className="mt-1 font-mono text-[10.5px] text-[#9DA8B3]">
                   {homeTeam.shortName} (H) vs {awayTeam.shortName} (A)
                 </div>
               </div>
 
-              <div className="border border-[#F59E0B]/40 bg-[#132338] px-3.5 py-2.5">
+              <div className="border border-[#F5B942]/40 bg-[#0E1318] px-3.5 py-2.5">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-[10px] font-bold text-[#F59E0B] uppercase">
+                  <span className="font-mono text-[10px] font-bold text-[#F5B942] uppercase">
                     PITCH REPORT
                   </span>
-                  <span className="rounded-[2px] bg-[#D94E28] px-1.5 py-0.5 font-mono text-[9px] font-extrabold text-white">
+                  <span className="rounded-[2px] border border-[#F05A32]/50 bg-[#23120D] px-1.5 py-0.5 font-mono text-[9px] font-extrabold text-[#F05A32]">
                     {pitchMeta.shortLabel}
                   </span>
                 </div>
-                <div className="mt-0.5 font-display text-xl font-extrabold uppercase">
+                <div className="mt-0.5 font-display text-xl font-extrabold text-[#F5F2EA] uppercase">
                   {pitchMeta.label}
                 </div>
-                <div className="mt-0.5 text-[11px] text-slate-300">{pitchMeta.summary}</div>
+                <div className="mt-0.5 text-[11px] text-[#9DA8B3]">{pitchMeta.summary}</div>
               </div>
 
-              <div className="border border-white/15 bg-white/5 px-3.5 py-2.5">
-                <div className="font-mono text-[10px] text-slate-400 uppercase">
+              <div className="border border-[#263039] bg-[#0E1318] px-3.5 py-2.5">
+                <div className="font-mono text-[10px] text-[#9DA8B3] uppercase">
                   EXPECTED PAR SCORE
                 </div>
-                <div className="mt-0.5 font-mono text-2xl font-extrabold text-[#F59E0B] tabular-nums">
+                <div className="mt-0.5 font-mono text-2xl font-extrabold text-[#F5B942] tabular-nums">
                   {pitchMeta.expectedParRange[0]}–{pitchMeta.expectedParRange[1]}
                 </div>
-                <div className="mt-1 font-mono text-[10px] text-emerald-300">
+                <div className="mt-1 font-mono text-[10px] text-[#22D36B]">
                   + {pitchMeta.keyAdvantage}
                 </div>
-                <div className="font-mono text-[10px] text-rose-300">
+                <div className="font-mono text-[10px] text-[#F87171]">
                   ! {pitchMeta.threat}
                 </div>
               </div>
@@ -1125,33 +1294,33 @@ export function MatchCenter({
             {venueMemory && venueMemory.matches > 0 && (
               <div
                 data-testid="venue-memory-card"
-                className="mt-3 flex flex-wrap items-center justify-between gap-3 border border-white/15 bg-[#132338] px-3.5 py-2 font-mono text-[11px]"
+                className="mt-3 flex flex-wrap items-center justify-between gap-3 border border-[#263039] bg-[#0E1318] px-3.5 py-2 font-mono text-[11px]"
               >
-                <span className="font-bold text-[#F59E0B] uppercase">
+                <span className="font-bold text-[#F5B942] uppercase">
                   VENUE MEMORY ({venueMemory.matches} MATCH{venueMemory.matches > 1 ? 'ES' : ''})
                 </span>
-                <div className="flex flex-wrap items-center gap-4 text-slate-200 tabular-nums">
+                <div className="flex flex-wrap items-center gap-4 text-[#9DA8B3] tabular-nums">
                   <span>
                     Avg 1st Inn:{' '}
-                    <strong>
+                    <strong className="text-[#F5F2EA]">
                       {Math.round(venueMemory.totalFirstInnRuns / venueMemory.matches)}/
                       {(venueMemory.totalFirstInnWkts / venueMemory.matches).toFixed(1)}
                     </strong>
                   </span>
                   <span>
                     Avg 2nd Inn:{' '}
-                    <strong>{Math.round(venueMemory.totalSecondInnRuns / venueMemory.matches)}</strong>
+                    <strong className="text-[#F5F2EA]">{Math.round(venueMemory.totalSecondInnRuns / venueMemory.matches)}</strong>
                   </span>
                   <span>
-                    Bat 1st Wins: <strong>{venueMemory.batFirstWins}</strong> · Chases:{' '}
-                    <strong>{venueMemory.chaseWins}</strong>
+                    Bat 1st Wins: <strong className="text-[#F5F2EA]">{venueMemory.batFirstWins}</strong> · Chases:{' '}
+                    <strong className="text-[#F5F2EA]">{venueMemory.chaseWins}</strong>
                   </span>
                   <span>
-                    Highest: <strong>{venueMemory.highestScore}</strong>
+                    Highest: <strong className="text-[#F5F2EA]">{venueMemory.highestScore}</strong>
                   </span>
                   <span>
                     Lowest Defended:{' '}
-                    <strong>{venueMemory.lowestDefended ?? '—'}</strong>
+                    <strong className="text-[#F5F2EA]">{venueMemory.lowestDefended ?? '—'}</strong>
                   </span>
                 </div>
               </div>
@@ -1159,9 +1328,9 @@ export function MatchCenter({
 
             {/* Pre-Toss Starting XI & Bench Review Bar */}
             {!toss && squad && playingXiState && onAdjustPreMatchXI && (
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-white/15 pt-3">
-                <div className="flex items-center gap-2 font-mono text-[11px] text-slate-200">
-                  <Users className="h-3.5 w-3.5 text-[#F59E0B]" aria-hidden="true" />
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#263039] pt-3">
+                <div className="flex items-center gap-2 font-mono text-[11px] text-[#9DA8B3]">
+                  <Users className="h-3.5 w-3.5 text-[#F5B942]" aria-hidden="true" />
                   <span>
                     Starting XI Ready ({userTeam.players.length}/11 · Bench{' '}
                     {benchPlayers.length}) — Tailor lineup for {pitchMeta.label} before Toss
@@ -1175,7 +1344,7 @@ export function MatchCenter({
                     setSwapPickXiId(null);
                     setIsAdjustXiOpen(true);
                   }}
-                  className="inline-flex min-h-[34px] items-center gap-1.5 rounded-[2px] border border-white/30 bg-white/10 px-3 py-1 font-mono text-[11px] font-bold text-white uppercase hover:bg-white/20"
+                  className="inline-flex min-h-[34px] items-center gap-1.5 rounded-[2px] border border-[#263039] bg-[#0E1318] px-3 py-1 font-mono text-[11px] font-bold text-[#F5F2EA] uppercase transition-colors hover:border-[#22D36B]/60"
                 >
                   <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
                   <span>ADJUST XI &amp; BENCH</span>
@@ -1187,13 +1356,13 @@ export function MatchCenter({
           <div className="p-5 sm:p-6">
             {!toss ? (
               <div className="mx-auto max-w-md text-center">
-                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border-2 border-[#141619] bg-[#FEF3C7] text-[#B45309] shadow-[2px_2px_0px_#141619]">
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-[#F5B942]/60 bg-[#201A0A] text-[#F5B942]">
                   <Coins className="h-8 w-8" aria-hidden="true" />
                 </div>
-                <h2 className="mt-3 font-display text-2xl font-extrabold tracking-wide text-[#141619] uppercase">
+                <h2 className="mt-3 font-display text-2xl font-extrabold tracking-wide text-[#F5F2EA] uppercase">
                   CALL THE COIN TOSS
                 </h2>
-                <p className="mt-1 text-xs text-[#4A4E54]">
+                <p className="mt-1 text-xs text-[#9DA8B3]">
                   Win the toss to decide whether {userTeam.shortName} will bat or bowl first on this{' '}
                   {pitchMeta.label.toLowerCase()}.
                 </p>
@@ -1203,7 +1372,7 @@ export function MatchCenter({
                     type="button"
                     data-testid="toss-heads"
                     onClick={() => handleCallToss('HEADS')}
-                    className="min-h-[48px] rounded-[3px] border-2 border-[#141619] bg-[#D94E28] px-4 py-2.5 font-display text-xl font-extrabold tracking-wider text-white uppercase shadow-[2px_2px_0px_#141619] hover:bg-[#B83C1B]"
+                    className="min-h-[48px] rounded-[2px] border border-[#22D36B] bg-[#22D36B] px-4 py-2.5 font-display text-xl font-extrabold tracking-wider text-[#06110A] uppercase transition-colors hover:bg-[#1EC161]"
                   >
                     HEADS
                   </button>
@@ -1211,34 +1380,54 @@ export function MatchCenter({
                     type="button"
                     data-testid="toss-tails"
                     onClick={() => handleCallToss('TAILS')}
-                    className="min-h-[48px] rounded-[3px] border-2 border-[#141619] bg-[#0D1B2A] px-4 py-2.5 font-display text-xl font-extrabold tracking-wider text-white uppercase shadow-[2px_2px_0px_#141619] hover:bg-[#162B42]"
+                    className="min-h-[48px] rounded-[2px] border border-[#263039] bg-[#111820] px-4 py-2.5 font-display text-xl font-extrabold tracking-wider text-[#F5F2EA] uppercase transition-colors hover:border-[#22D36B] hover:bg-[#17212C]"
                   >
                     TAILS
                   </button>
                 </div>
               </div>
+            ) : isTossFlipping ? (
+              <div
+                data-testid="toss-flipping-state"
+                className="mx-auto max-w-md py-3 text-center"
+              >
+                <div className="ip-coin-spin mx-auto flex h-20 w-20 items-center justify-center rounded-full border-2 border-[#F5B942] bg-gradient-to-br from-[#FDE68A] via-[#F5B942] to-[#B45309] font-display text-xl font-extrabold tracking-wider text-[#080B0D] shadow-lg">
+                  {toss.call === 'HEADS' ? 'H' : 'T'}
+                </div>
+                <div className="mt-3 font-mono text-xs font-extrabold tracking-widest text-[#F5F2EA] uppercase">
+                  CALL: {toss.call} · FLIPPING COIN...
+                </div>
+                <button
+                  type="button"
+                  data-testid="skip-toss-btn"
+                  onClick={skipTossAnimation}
+                  className="mt-4 inline-flex min-h-[36px] items-center justify-center rounded-[2px] border border-[#263039] bg-[#111820] px-4 py-1.5 font-mono text-[11px] font-extrabold tracking-wider text-[#F5F2EA] uppercase hover:border-[#22D36B]"
+                >
+                  SKIP TOSS ANIMATION
+                </button>
+              </div>
             ) : (
-              <div data-testid="toss-outcome" className="mx-auto max-w-lg text-center">
-                <div className="inline-flex items-center gap-2 rounded-[2px] border border-[#141619] bg-white px-3 py-1 font-mono text-xs font-bold uppercase">
+              <div data-testid="toss-outcome" className="ip-result-reveal mx-auto max-w-lg text-center">
+                <div className="inline-flex items-center gap-2 rounded-[2px] border border-[#263039] bg-[#111820] px-3 py-1 font-mono text-xs font-bold text-[#F5F2EA] uppercase">
                   <span>CALL: {toss.call}</span>
-                  <span>·</span>
-                  <span className="text-[#D94E28]">RESULT: {toss.outcome}</span>
+                  <span className="text-[#9DA8B3]">·</span>
+                  <span className="text-[#F5B942]">RESULT: {toss.outcome}</span>
                 </div>
 
                 {/* Contextual Pitch Toss Hint (advisory only, never forces choice) */}
                 <div
                   data-testid="toss-contextual-hint"
-                  className="mt-3 rounded-[2px] border border-[#141619]/20 bg-[#F4EFE4] px-3 py-1.5 font-mono text-[11px] font-semibold text-[#141619]"
+                  className="mt-3 rounded-[2px] border border-[#263039] bg-[#111820] px-3 py-1.5 font-mono text-[11px] font-semibold text-[#9DA8B3]"
                 >
-                  PITCH NOTE: {pitchMeta.tossHint}
+                  PITCH NOTE: <span className="text-[#F5F2EA]">{pitchMeta.tossHint}</span>
                 </div>
 
                 {toss.winnerTeamId === 'YOU' ? (
                   <>
-                    <h2 className="mt-3 font-display text-2xl font-extrabold text-[#157F3D] uppercase">
+                    <h2 className="mt-3 font-display text-2xl font-extrabold text-[#22D36B] uppercase">
                       {userTeam.name} WON THE TOSS!
                     </h2>
-                    <p className="mt-1 text-xs text-[#4A4E54]">
+                    <p className="mt-1 text-xs text-[#9DA8B3]">
                       Choose whether to bat first and set a target, or bowl first with manual over-by-over captaincy.
                     </p>
                     <div className="mt-5 grid grid-cols-2 gap-3">
@@ -1246,7 +1435,7 @@ export function MatchCenter({
                         type="button"
                         data-testid="toss-choose-bat"
                         onClick={() => handleUserDecision('BAT')}
-                        className="min-h-[48px] rounded-[3px] border-2 border-[#141619] bg-[#D94E28] px-4 py-2.5 font-display text-xl font-extrabold tracking-wider text-white uppercase hover:bg-[#B83C1B]"
+                        className="min-h-[48px] rounded-[2px] border border-[#22D36B] bg-[#22D36B] px-4 py-2.5 font-display text-xl font-extrabold tracking-wider text-[#06110A] uppercase transition-colors hover:bg-[#1EC161]"
                       >
                         BAT FIRST
                       </button>
@@ -1254,7 +1443,7 @@ export function MatchCenter({
                         type="button"
                         data-testid="toss-choose-bowl"
                         onClick={() => handleUserDecision('BOWL')}
-                        className="min-h-[48px] rounded-[3px] border-2 border-[#141619] bg-[#157F3D] px-4 py-2.5 font-display text-xl font-extrabold tracking-wider text-white uppercase hover:bg-[#116832]"
+                        className="min-h-[48px] rounded-[2px] border border-[#263039] bg-[#111820] px-4 py-2.5 font-display text-xl font-extrabold tracking-wider text-[#F5F2EA] uppercase transition-colors hover:border-[#22D36B] hover:bg-[#17212C]"
                       >
                         BOWL FIRST
                       </button>
@@ -1262,10 +1451,10 @@ export function MatchCenter({
                   </>
                 ) : (
                   <>
-                    <h2 className="mt-3 font-display text-2xl font-extrabold text-[#141619] uppercase">
+                    <h2 className="mt-3 font-display text-2xl font-extrabold text-[#F5F2EA] uppercase">
                       {opponentTeam.name} WON THE TOSS
                     </h2>
-                    <p className="mt-1 font-mono text-xs font-bold text-[#D94E28] uppercase">
+                    <p className="mt-1 font-mono text-xs font-bold text-[#F5B942] uppercase">
                       {opponentTeam.shortName} elected to{' '}
                       {toss.decision === 'BAT' ? 'BAT FIRST' : 'BOWL FIRST'}
                     </p>
@@ -1273,7 +1462,7 @@ export function MatchCenter({
                       type="button"
                       data-testid="start-live-match"
                       onClick={() => startLiveMatchFromToss(toss)}
-                      className="mt-5 inline-flex min-h-[48px] items-center justify-center gap-2 rounded-[3px] border-2 border-[#141619] bg-[#D94E28] px-7 py-2.5 font-display text-xl font-extrabold tracking-wider text-white uppercase shadow-[2px_2px_0px_#141619] hover:bg-[#B83C1B]"
+                      className="mt-5 inline-flex min-h-[48px] items-center justify-center gap-2 rounded-[2px] border border-[#22D36B] bg-[#22D36B] px-7 py-2.5 font-display text-xl font-extrabold tracking-wider text-[#06110A] uppercase transition-colors hover:bg-[#1EC161]"
                     >
                       <Play className="h-5 w-5" aria-hidden="true" />
                       <span>PROCEED TO MATCH</span>
@@ -1290,18 +1479,18 @@ export function MatchCenter({
       {isAdjustXiOpen && draftXiState && squad && adjustXiValidation && (
         <div
           data-testid="pre-match-xi-modal"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-3"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3"
           role="dialog"
           aria-modal="true"
           aria-label="Adjust Starting XI and Impact Bench"
         >
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto border-2 border-[#141619] bg-[#FAF8F3] p-4 shadow-2xl">
-            <div className="flex items-center justify-between border-b-2 border-[#141619] pb-2.5">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto border border-[#263039] bg-[#0E1318] p-4 text-[#F5F2EA] shadow-2xl">
+            <div className="flex items-center justify-between border-b border-[#263039] pb-2.5">
               <div>
-                <div className="font-mono text-[10px] font-bold text-[#D94E28] uppercase">
+                <div className="font-mono text-[10px] font-bold text-[#F5B942] uppercase">
                   PITCH ADJUSTMENT · {pitchMeta.label}
                 </div>
-                <h3 className="font-display text-xl font-extrabold text-[#141619] uppercase">
+                <h3 className="font-display text-xl font-extrabold text-[#F5F2EA] uppercase">
                   Adjust Starting XI &amp; Impact Bench
                 </h3>
               </div>
@@ -1309,39 +1498,39 @@ export function MatchCenter({
                 type="button"
                 onClick={() => setIsAdjustXiOpen(false)}
                 aria-label="Close XI adjustment"
-                className="flex h-9 w-9 items-center justify-center rounded-[2px] border border-[#141619]/30 bg-white hover:bg-[#141619] hover:text-white"
+                className="flex h-9 w-9 items-center justify-center rounded-[2px] border border-[#263039] bg-[#111820] text-[#9DA8B3] hover:border-[#22D36B] hover:text-[#F5F2EA]"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[2px] border border-[#141619]/20 bg-white px-3 py-2 font-mono text-[11px]">
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[2px] border border-[#263039] bg-[#111820] px-3 py-2 font-mono text-[11px] text-[#9DA8B3]">
               <span>
-                XI: <strong>{adjustXiValidation.xiPlayers.length}/11</strong> · Overseas:{' '}
-                <strong>
+                XI: <strong className="text-[#F5F2EA]">{adjustXiValidation.xiPlayers.length}/11</strong> · Overseas:{' '}
+                <strong className="text-[#F5F2EA]">
                   {adjustXiValidation.overseasCount}/{maxStandardOverseas}
                 </strong>{' '}
-                · WK: <strong>{adjustXiValidation.wicketkeepersInXI.length}</strong>
+                · WK: <strong className="text-[#F5F2EA]">{adjustXiValidation.wicketkeepersInXI.length}</strong>
               </span>
               {adjustXiValidation.isValid ? (
-                <span className="font-bold text-[#157F3D]">VALID XI ✓</span>
+                <span className="font-bold text-[#22D36B]">VALID XI ✓</span>
               ) : (
-                <span className="font-bold text-[#D94E28]">{adjustXiValidation.errors[0]}</span>
+                <span className="font-bold text-[#E44949]">{adjustXiValidation.errors[0]}</span>
               )}
             </div>
 
-            <p className="mt-2 font-mono text-[10.5px] text-[#4A4E54]">
+            <p className="mt-2 font-mono text-[10.5px] text-[#9DA8B3]">
               {swapPickXiId
                 ? 'Now click any Bench player below to swap them into your Starting XI.'
                 : 'Click a player in your Starting XI, then click a Bench player to swap.'}
             </p>
 
             <div className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div className="border border-[#141619] bg-white">
-                <div className="border-b border-[#141619]/20 bg-[#EFE9DC] px-2.5 py-1.5 font-mono text-[10px] font-bold uppercase">
+              <div className="border border-[#263039] bg-[#080B0D]">
+                <div className="border-b border-[#263039] bg-[#111820] px-2.5 py-1.5 font-mono text-[10px] font-bold text-[#9DA8B3] uppercase">
                   Starting XI ({adjustXiValidation.xiPlayers.length})
                 </div>
-                <div className="max-h-[280px] divide-y divide-[#141619]/10 overflow-y-auto">
+                <div className="max-h-[280px] divide-y divide-[#263039] overflow-y-auto">
                   {adjustXiValidation.xiPlayers.map((p) => (
                     <button
                       key={p.playerId}
@@ -1353,20 +1542,20 @@ export function MatchCenter({
                       }
                       className={`flex w-full items-center justify-between px-2.5 py-1.5 text-left text-xs ${
                         swapPickXiId === p.playerId
-                          ? 'bg-[#D94E28]/15 font-bold'
-                          : 'hover:bg-[#FAF8F3]'
+                          ? 'bg-[#23120D] font-bold text-[#F5F2EA]'
+                          : 'text-[#F5F2EA] hover:bg-[#111820]'
                       }`}
                     >
                       <span className="flex items-center gap-1.5 truncate">
                         <RoleBadge role={p.role} bowlingStyle={p.bowlingStyle} />
                         <span className="truncate font-semibold">{p.playerName}</span>
                         {p.isOverseas && (
-                          <span className="rounded-[2px] bg-[#FEF3C7] px-1 font-mono text-[8.5px] font-bold text-[#B45309]">
+                          <span className="rounded-[2px] border border-[#F5B942]/40 bg-[#201A0A] px-1 font-mono text-[8.5px] font-bold text-[#F5B942]">
                             OS
                           </span>
                         )}
                       </span>
-                      <span className="font-mono text-[10px] text-[#4A4E54] tabular-nums">
+                      <span className="font-mono text-[10px] text-[#9DA8B3] tabular-nums">
                         {p.battingRating}/{p.bowlingRating}
                       </span>
                     </button>
@@ -1374,11 +1563,11 @@ export function MatchCenter({
                 </div>
               </div>
 
-              <div className="border border-[#141619] bg-white">
-                <div className="border-b border-[#141619]/20 bg-[#EFE9DC] px-2.5 py-1.5 font-mono text-[10px] font-bold uppercase">
+              <div className="border border-[#263039] bg-[#080B0D]">
+                <div className="border-b border-[#263039] bg-[#111820] px-2.5 py-1.5 font-mono text-[10px] font-bold text-[#F05A32] uppercase">
                   Impact Bench ({adjustXiValidation.benchPlayers.length})
                 </div>
-                <div className="max-h-[280px] divide-y divide-[#141619]/10 overflow-y-auto">
+                <div className="max-h-[280px] divide-y divide-[#263039] overflow-y-auto">
                   {adjustXiValidation.benchPlayers.map((p) => (
                     <button
                       key={p.playerId}
@@ -1395,18 +1584,18 @@ export function MatchCenter({
                         setDraftXiState(next);
                         setSwapPickXiId(null);
                       }}
-                      className="flex w-full items-center justify-between px-2.5 py-1.5 text-left text-xs hover:bg-[#FAF8F3] disabled:opacity-65"
+                      className="flex w-full items-center justify-between px-2.5 py-1.5 text-left text-xs text-[#F5F2EA] hover:bg-[#111820] disabled:opacity-55"
                     >
                       <span className="flex items-center gap-1.5 truncate">
                         <RoleBadge role={p.role} bowlingStyle={p.bowlingStyle} />
                         <span className="truncate font-semibold">{p.playerName}</span>
                         {p.isOverseas && (
-                          <span className="rounded-[2px] bg-[#FEF3C7] px-1 font-mono text-[8.5px] font-bold text-[#B45309]">
+                          <span className="rounded-[2px] border border-[#F5B942]/40 bg-[#201A0A] px-1 font-mono text-[8.5px] font-bold text-[#F5B942]">
                             OS
                           </span>
                         )}
                       </span>
-                      <span className="font-mono text-[10px] text-[#6D28D9] tabular-nums">
+                      <span className="font-mono text-[10px] text-[#F05A32] tabular-nums">
                         {p.battingRating}/{p.bowlingRating}
                       </span>
                     </button>
@@ -1415,11 +1604,11 @@ export function MatchCenter({
               </div>
             </div>
 
-            <div className="mt-4 flex justify-end gap-2 border-t border-[#141619]/20 pt-3">
+            <div className="mt-4 flex justify-end gap-2 border-t border-[#263039] pt-3">
               <button
                 type="button"
                 onClick={() => setIsAdjustXiOpen(false)}
-                className="min-h-[38px] rounded-[2px] border border-[#141619] bg-white px-4 font-mono text-xs font-bold uppercase hover:bg-[#EAE3D5]"
+                className="min-h-[38px] rounded-[2px] border border-[#263039] bg-[#111820] px-4 font-mono text-xs font-bold text-[#F5F2EA] uppercase hover:border-[#9DA8B3]"
               >
                 Cancel
               </button>
@@ -1433,7 +1622,7 @@ export function MatchCenter({
                     setIsAdjustXiOpen(false);
                   }
                 }}
-                className="min-h-[38px] rounded-[2px] border border-[#141619] bg-[#D94E28] px-5 font-mono text-xs font-extrabold text-white uppercase hover:bg-[#B83C1B] disabled:opacity-45"
+                className="min-h-[38px] rounded-[2px] border border-[#22D36B] bg-[#22D36B] px-5 font-mono text-xs font-extrabold text-[#06110A] uppercase transition-colors hover:bg-[#1EC161] disabled:opacity-40"
               >
                 SAVE LINEUP FOR MATCH
               </button>
@@ -1445,85 +1634,223 @@ export function MatchCenter({
       {/* STAGE 2: LIVE MATCH CENTER (D3 CHART + OVER-BY-OVER + BOWLING MANAGEMENT) */}
       {stage === 'LIVE' && activeInningsState && (
         <div data-testid="match-live-board" className="mt-4 space-y-4">
-          {/* Dark Navy Live Scoreboard */}
-          <div className="border-2 border-[#141619] bg-[#0D1B2A] p-4 text-white shadow-[4px_4px_0px_#141619] sm:p-5">
+          {/* Signature IMPACT PLAYER Substitution Reveal Overlay (~1s, skippable) */}
+          {impactReveal && (
+            <div
+              data-testid="impact-player-reveal-overlay"
+              role="status"
+              aria-live="assertive"
+              className="fixed inset-0 z-50 flex items-center justify-center bg-[#080B0D]/85 p-4"
+            >
+              <div className="ip-result-reveal relative w-full max-w-lg border border-[#F05A32] bg-[#0E1318] p-6 text-center text-[#F5F2EA] shadow-2xl">
+                <div className="ip-impact-line mx-auto h-[3px] w-full bg-[#F05A32]" />
+                <div className="mt-4 inline-flex items-center gap-2 font-mono text-xs font-extrabold tracking-[0.24em] text-[#F05A32] uppercase">
+                  <Zap className="h-4 w-4" aria-hidden="true" />
+                  <span>IMPACT PLAYER</span>
+                </div>
+                <div className="mt-4 space-y-2">
+                  <div className="flex items-center justify-center gap-2 font-mono text-xs text-[#9DA8B3]">
+                    <span className="rounded-[2px] border border-[#263039] bg-[#111820] px-1.5 py-0.5 text-[10px] font-bold text-[#9DA8B3]">
+                      OUT
+                    </span>
+                    <span className="line-through opacity-80">{impactReveal.outName}</span>
+                  </div>
+                  <div className="flex items-center justify-center gap-2.5">
+                    <span className="rounded-[2px] bg-[#F05A32] px-2 py-0.5 font-mono text-[10.5px] font-extrabold tracking-wider text-[#080B0D]">
+                      IMP · IN
+                    </span>
+                    <span className="font-display text-3xl font-extrabold tracking-wide text-[#F5F2EA] uppercase sm:text-4xl">
+                      {impactReveal.inName}
+                    </span>
+                  </div>
+                  {impactReveal.wasFifthOverseas && (
+                    <div className="font-mono text-[10px] font-bold text-[#F5B942] uppercase">
+                      5TH OVERSEAS TACTICAL IMPACT ACTIVATED
+                    </div>
+                  )}
+                </div>
+                <div className="ip-impact-line mx-auto mt-5 h-[2px] w-2/3 bg-[#F05A32]/60" />
+                <button
+                  type="button"
+                  data-testid="skip-impact-anim-btn"
+                  onClick={() => {
+                    if (impactRevealTimerRef.current !== null) {
+                      window.clearTimeout(impactRevealTimerRef.current);
+                      impactRevealTimerRef.current = null;
+                    }
+                    setImpactReveal(null);
+                  }}
+                  className="mt-4 inline-flex min-h-[32px] items-center justify-center rounded-[2px] border border-[#263039] bg-[#111820] px-3.5 py-1 font-mono text-[10px] font-bold tracking-wider text-[#F5F2EA] uppercase hover:border-[#22D36B]"
+                >
+                  SKIP
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Dark Live Scoreboard */}
+          <div
+            className={`relative border bg-[#0E1318] p-4 text-[#F5F2EA] transition-colors sm:p-5 ${scoreboardEdgeClass}`}
+          >
             <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono font-bold tracking-wider text-[#F59E0B] uppercase">
-                  LIVE MATCH CENTER · INNINGS {inningsNumber}
+                <span className="font-mono font-bold tracking-wider text-[#F5B942] uppercase">
+                  {isFinalMatch ? 'FINAL · ' : ''}LIVE MATCH CENTER · INNINGS {inningsNumber}
                 </span>
                 <span
                   data-testid="live-phase-badge"
-                  className="rounded-[2px] border border-white/20 bg-white/10 px-2 py-0.5 font-mono text-[10px] font-extrabold text-emerald-300 uppercase"
+                  className="rounded-[2px] border border-[#22D36B]/45 bg-[#0A2014] px-2 py-0.5 font-mono text-[10px] font-extrabold text-[#22D36B] uppercase"
                 >
                   {SIM_CONFIG.phases[currentPhase].shortLabel}
                 </span>
-                <span className="rounded-[2px] bg-white/10 px-2 py-0.5 font-mono text-[10px] font-bold text-slate-200 uppercase">
+                <span className="rounded-[2px] border border-[#263039] bg-[#111820] px-2 py-0.5 font-mono text-[10px] font-bold text-[#9DA8B3] uppercase">
                   {pitchMeta.shortLabel}
                 </span>
                 {activeInningsState.freeHitActive && (
                   <span
                     data-testid="free-hit-badge"
-                    className="rounded-[2px] border border-amber-300 bg-[#F59E0B] px-2 py-0.5 font-mono text-[10px] font-extrabold text-[#141619] uppercase"
+                    className="rounded-[2px] border border-[#F5B942] bg-[#F5B942] px-2 py-0.5 font-mono text-[10px] font-extrabold text-[#080B0D] uppercase"
                   >
                     FREE HIT
                   </span>
                 )}
               </div>
-              <span className="font-mono text-slate-300">
+              <span className="font-mono text-[#9DA8B3]">
                 {toss
                   ? `${season.teams[toss.winnerTeamId].shortName} won toss & chose ${toss.decision}`
                   : pitchMeta.label}
               </span>
             </div>
 
-            <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-[1.2fr_1fr] sm:items-end">
+            {/* Compact Non-Blocking Broadcast Event Callout (FOUR! / SIX! / WICKET!) & Milestones */}
+            {(eventFlash || milestoneBanners.length > 0) && (
+              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                {eventFlash && (
+                  <div
+                    key={eventFlash.id}
+                    data-testid={`match-event-${eventFlash.kind.toLowerCase()}`}
+                    className={`ip-broadcast-banner inline-flex items-center gap-2 rounded-[2px] border px-2.5 py-1 font-mono text-xs ${
+                      eventFlash.kind === 'WICKET'
+                        ? 'border-[#E44949] bg-[#231012] text-[#F87171]'
+                        : eventFlash.kind === 'SIX'
+                          ? 'border-[#F05A32] bg-[#23120D] text-[#F05A32]'
+                          : 'border-[#22D36B] bg-[#0A2014] text-[#22D36B]'
+                    }`}
+                  >
+                    <span className="font-display text-base font-extrabold tracking-wider uppercase">
+                      {eventFlash.headline}
+                    </span>
+                    <span className="text-[11px] font-semibold text-[#F5F2EA]">
+                      {eventFlash.detail}
+                    </span>
+                  </div>
+                )}
+
+                {milestoneBanners.map((m) => (
+                  <div
+                    key={m.id}
+                    data-testid={`match-milestone-${m.kind.toLowerCase()}`}
+                    className="ip-fade-slide inline-flex items-center gap-1.5 rounded-[2px] border border-[#F5B942]/60 bg-[#201A0A] px-2.5 py-1 font-mono text-[11px] text-[#F5F2EA]"
+                  >
+                    <span className="font-extrabold text-[#F5B942] uppercase">{m.label}</span>
+                    <span className="text-[#9DA8B3]">· {m.detail}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[1.25fr_1fr] sm:items-end">
               <div>
-                <div className="font-mono text-xs font-bold text-slate-300 uppercase">
-                  {activeInningsState.battingTeam.name} (Batting) · vs{' '}
+                <div className="font-mono text-xs font-bold text-[#9DA8B3] uppercase">
+                  {activeInningsState.battingTeam.name} · vs{' '}
                   {activeInningsState.bowlingTeam.shortName}
                 </div>
                 <div className="mt-1 flex items-baseline gap-3">
                   <span
                     data-testid="live-score-readout"
-                    className="font-mono text-4xl font-extrabold tracking-tight text-white tabular-nums sm:text-5xl"
+                    className="font-mono text-5xl font-extrabold leading-none tracking-tight text-[#F5F2EA] tabular-nums sm:text-6xl"
                   >
-                    {activeInningsState.runs}/{activeInningsState.wickets}
+                    <AnimatedNumber
+                      value={activeInningsState.runs}
+                      enabled={animateNumbers}
+                      durationMs={220}
+                      format={(v) => String(Math.round(v))}
+                    />
+                    /
+                    <AnimatedNumber
+                      value={activeInningsState.wickets}
+                      enabled={animateNumbers}
+                      durationMs={180}
+                      format={(v) => String(Math.round(v))}
+                    />
                   </span>
-                  <span className="font-mono text-base font-bold text-[#F59E0B] tabular-nums">
-                    ({formatOversDisplay(ballsToCricketOvers(activeInningsState.legalBalls))} / 20 OV)
+                  <span className="font-mono text-base font-bold text-[#F5B942] tabular-nums sm:text-lg">
+                    {formatOversDisplay(ballsToCricketOvers(activeInningsState.legalBalls))} / 20 ov
                   </span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 border border-white/15 bg-[#132338] p-3 font-mono text-xs">
-                <div>
-                  <div className="text-[10px] text-slate-400 uppercase">CRR</div>
-                  <div className="mt-0.5 font-bold text-white tabular-nums">{liveCrr}</div>
+              <div className="grid grid-cols-3 divide-x divide-[#263039] border border-[#263039] bg-[#111820] font-mono text-xs">
+                <div className="px-3 py-2">
+                  <div className="text-[9.5px] text-[#9DA8B3] uppercase">RUN RATE</div>
+                  <div className="mt-0.5 text-sm font-extrabold text-[#F5F2EA] tabular-nums">{liveCrr}</div>
                 </div>
-                <div>
-                  <div className="text-[10px] text-slate-400 uppercase">TARGET</div>
-                  <div className="mt-0.5 font-bold text-[#F59E0B] tabular-nums">
+                <div className="px-3 py-2">
+                  <div className="text-[9.5px] text-[#9DA8B3] uppercase">TARGET</div>
+                  <div className="mt-0.5 text-sm font-extrabold text-[#F5B942] tabular-nums">
                     {activeInningsState.target ?? '1st Inn'}
                   </div>
                 </div>
-                <div>
-                  <div className="text-[10px] text-slate-400 uppercase">RRR</div>
-                  <div className="mt-0.5 font-bold text-emerald-300 tabular-nums">
-                    {liveRrr ?? '—'}
+                <div
+                  data-testid="chase-tension-box"
+                  className={`px-3 py-2 transition-colors ${
+                    chaseTension.isCritical && matchAnimsOn
+                      ? 'ip-chase-pulse bg-[#23120D]'
+                      : ''
+                  }`}
+                >
+                  <div
+                    className={`text-[9.5px] uppercase ${
+                      chaseTension.isCritical ? 'font-bold text-[#F05A32]' : 'text-[#9DA8B3]'
+                    }`}
+                  >
+                    {chaseTension.isChase && chaseTension.runsNeeded > 0 ? 'NEEDED / RRR' : 'REQ RATE'}
                   </div>
+                  <div className="mt-0.5 text-sm font-extrabold text-[#22D36B] tabular-nums">
+                    {chaseTension.isChase && chaseTension.runsNeeded > 0 ? (
+                      <span className={chaseTension.isCritical ? 'text-[#F05A32]' : 'text-[#22D36B]'}>
+                        <AnimatedNumber
+                          value={chaseTension.runsNeeded}
+                          enabled={animateNumbers}
+                          durationMs={220}
+                          format={(v) => String(Math.max(0, Math.round(v)))}
+                        />
+                        <span className="text-[10.5px] font-semibold text-[#9DA8B3]">
+                          {' '}
+                          ({chaseTension.ballsRemaining}b)
+                        </span>
+                      </span>
+                    ) : (
+                      liveRrr ?? '—'
+                    )}
+                  </div>
+                  {chaseTension.isCritical && chaseTension.calloutText && (
+                    <div className="mt-0.5 text-[9px] font-extrabold tracking-wider text-[#F05A32] uppercase">
+                      {chaseTension.calloutText}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
 
             {/* Active Batters & Current Bowler Strip */}
-            <div className="mt-3 grid grid-cols-1 gap-2 border border-white/15 bg-[#132338] p-3 font-mono text-xs md:grid-cols-2">
+            <div className="mt-3 grid grid-cols-1 gap-2 border border-[#263039] bg-[#111820] p-3 font-mono text-xs md:grid-cols-2">
               <div className="space-y-1">
-                <div className="text-[10px] font-bold text-slate-400 uppercase">
+                <div className="text-[10px] font-bold text-[#9DA8B3] uppercase">
                   Current Batters
                 </div>
                 {liveStriker && (
-                  <div className="flex items-center justify-between text-white">
+                  <div className="flex items-center justify-between text-[#F5F2EA]">
                     <span className="font-bold">
                       {liveStriker.player.playerName}*
                     </span>
@@ -1534,7 +1861,7 @@ export function MatchCenter({
                   </div>
                 )}
                 {liveNonStriker && liveNonStriker.player.playerId !== liveStriker?.player.playerId && (
-                  <div className="flex items-center justify-between text-slate-300">
+                  <div className="flex items-center justify-between text-[#9DA8B3]">
                     <span>{liveNonStriker.player.playerName}</span>
                     <span className="tabular-nums">
                       {liveNonStriker.runs} ({liveNonStriker.balls})
@@ -1543,23 +1870,23 @@ export function MatchCenter({
                 )}
               </div>
 
-              <div className="space-y-1 border-t border-white/10 pt-2 md:border-t-0 md:border-l md:pt-0 md:pl-3">
-                <div className="text-[10px] font-bold text-slate-400 uppercase">
+              <div className="space-y-1 border-t border-[#263039] pt-2 md:border-t-0 md:border-l md:pt-0 md:pl-3">
+                <div className="text-[10px] font-bold text-[#9DA8B3] uppercase">
                   Last Bowler / Attack
                 </div>
                 {currentBowlerTracker ? (
-                  <div className="flex items-center justify-between text-white">
+                  <div className="flex items-center justify-between text-[#F5F2EA]">
                     <span className="font-bold">{currentBowlerTracker.player.playerName}</span>
-                    <span className="tabular-nums text-[#F59E0B]">
+                    <span className="tabular-nums text-[#F5B942]">
                       {ballsToCricketOvers(currentBowlerTracker.ballsBowled)}-
                       {currentBowlerTracker.maidens}-{currentBowlerTracker.runsConceded}-
                       {currentBowlerTracker.wickets}
                     </span>
                   </div>
                 ) : (
-                  <div className="text-slate-300">Opening over ready to bowl</div>
+                  <div className="text-[#9DA8B3]">Opening over ready to bowl</div>
                 )}
-                <div className="text-[10.5px] text-slate-300">
+                <div className="text-[10.5px] text-[#9DA8B3]">
                   Partnership: {activeInningsState.currentPartnershipRuns} (
                   {activeInningsState.currentPartnershipBalls}b)
                 </div>
@@ -1570,26 +1897,26 @@ export function MatchCenter({
             {activeInningsState.activeOver && activeInningsState.activeOver.ballsSequence.length > 0 && (
               <div
                 data-testid="active-over-balls"
-                className="mt-3 flex flex-wrap items-center justify-between gap-2 border border-white/15 bg-[#132338] px-3.5 py-2 font-mono text-xs"
+                className="mt-3 flex flex-wrap items-center justify-between gap-2 border border-[#263039] bg-[#111820] px-3.5 py-2 font-mono text-xs"
               >
-                <span className="font-bold text-[#F59E0B] uppercase">
+                <span className="font-bold text-[#F5B942] uppercase">
                   OVER {activeInningsState.activeOver.overNumber} IN PROGRESS ·{' '}
                   {activeInningsState.activeOver.bowlerName}
                 </span>
                 <div className="flex items-center gap-1">
                   {activeInningsState.activeOver.ballsSequence.map((b, i) => (
                     <span
-                      key={i}
-                      className={`inline-flex h-5 min-w-[20px] items-center justify-center rounded-[2px] px-1 text-[9.5px] font-extrabold ${
+                      key={`${activeInningsState.activeOver?.overNumber}-${i}-${b}`}
+                      className={`ip-ball-pop inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[9.5px] font-extrabold ${
                         b === 'W'
-                          ? 'bg-[#EF4444] text-white'
+                          ? 'bg-[#E44949] text-white'
                           : b === '6'
-                            ? 'bg-[#6D28D9] text-white'
+                            ? 'bg-[#F05A32] text-[#080B0D]'
                             : b === '4'
-                              ? 'bg-[#157F3D] text-white'
+                              ? 'bg-[#22D36B] text-[#06110A]'
                               : b === 'NB' || b === 'Wd'
-                                ? 'bg-[#F59E0B] text-[#141619]'
-                                : 'bg-white/15 text-white'
+                                ? 'bg-[#F5B942] text-[#080B0D]'
+                                : 'bg-[#080B0D] text-[#F5F2EA]'
                       }`}
                     >
                       {b === '0' ? '•' : b}
@@ -1603,13 +1930,13 @@ export function MatchCenter({
             {isUserBattingNow && (
               <div
                 data-testid="batting-aggression-panel"
-                className="mt-3 border border-white/15 bg-[#132338] px-3.5 py-2.5"
+                className="mt-3 border border-[#263039] bg-[#111820] px-3.5 py-2.5"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-mono text-[10px] font-bold tracking-wider text-[#F59E0B] uppercase">
+                  <span className="font-mono text-[10px] font-bold tracking-wider text-[#F5B942] uppercase">
                     BATTING INTENT · {SIM_CONFIG.aggressionModes[battingAggression].label}
                   </span>
-                  <span className="font-mono text-[10px] text-slate-300">
+                  <span className="font-mono text-[10px] text-[#9DA8B3]">
                     {SIM_CONFIG.aggressionModes[battingAggression].description}
                   </span>
                 </div>
@@ -1630,8 +1957,8 @@ export function MatchCenter({
                       onClick={() => setBattingAggression(mode)}
                       className={`rounded-[2px] border px-2.5 py-1 font-mono text-[10px] font-extrabold uppercase transition-colors ${
                         battingAggression === mode
-                          ? 'border-[#F59E0B] bg-[#D94E28] text-white'
-                          : 'border-white/20 bg-white/5 text-slate-200 hover:bg-white/15'
+                          ? 'border-[#22D36B] bg-[#22D36B] text-[#06110A]'
+                          : 'border-[#263039] bg-[#0E1318] text-[#9DA8B3] hover:border-[#22D36B]/50 hover:text-[#F5F2EA]'
                       }`}
                     >
                       {SIM_CONFIG.aggressionModes[mode].shortLabel}
@@ -1645,14 +1972,14 @@ export function MatchCenter({
             {lastOverSummary && (
               <div
                 data-testid="over-complete-banner"
-                className="mt-3 flex flex-wrap items-center justify-between gap-2 border border-emerald-400/35 bg-emerald-950/35 px-3.5 py-2 font-mono text-xs"
+                className="mt-3 flex flex-wrap items-center justify-between gap-2 border border-[#22D36B]/40 bg-[#0A2014] px-3.5 py-2 font-mono text-xs"
               >
                 <div>
-                  <span className="font-extrabold text-emerald-300 uppercase">
+                  <span className="font-extrabold text-[#22D36B] uppercase">
                     OVER {lastOverSummary.overNumber} COMPLETE
                   </span>
-                  <span className="mx-2 text-slate-400">·</span>
-                  <span className="font-bold text-white">
+                  <span className="mx-2 text-[#9DA8B3]">·</span>
+                  <span className="font-bold text-[#F5F2EA]">
                     {lastOverSummary.bowlerName} ({lastOverSummary.bowlerSpellFigures}):{' '}
                     {lastOverSummary.runs} runs, {lastOverSummary.wickets} wkt
                     {lastOverSummary.wickets === 1 ? '' : 's'}
@@ -1661,17 +1988,18 @@ export function MatchCenter({
                 <div className="flex items-center gap-1">
                   {lastOverSummary.ballsSequence.map((b, i) => (
                     <span
-                      key={i}
-                      className={`inline-flex h-5 min-w-[20px] items-center justify-center rounded-[2px] px-1 text-[9.5px] font-extrabold ${
+                      key={`${lastOverSummary.overNumber}-${i}-${b}`}
+                      style={matchAnimsOn ? { animationDelay: `${i * 26}ms` } : undefined}
+                      className={`ip-ball-pop inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[9.5px] font-extrabold ${
                         b === 'W'
-                          ? 'bg-[#EF4444] text-white'
+                          ? 'bg-[#E44949] text-white'
                           : b === '6'
-                            ? 'bg-[#6D28D9] text-white'
+                            ? 'bg-[#F05A32] text-[#080B0D]'
                             : b === '4'
-                              ? 'bg-[#157F3D] text-white'
+                              ? 'bg-[#22D36B] text-[#06110A]'
                               : b === 'NB' || b === 'Wd'
-                                ? 'bg-[#F59E0B] text-[#141619]'
-                                : 'bg-white/15 text-white'
+                                ? 'bg-[#F5B942] text-[#080B0D]'
+                                : 'bg-[#0E1318] text-[#F5F2EA]'
                       }`}
                     >
                       {b === '0' ? '•' : b}
@@ -1693,10 +2021,10 @@ export function MatchCenter({
                       setImpactPromptShown(true);
                       setStage('IMPACT_MOMENT');
                     }}
-                    className="inline-flex min-h-[38px] items-center gap-1.5 rounded-[3px] border border-amber-300 bg-[#6D28D9] px-3.5 py-1.5 font-mono text-xs font-extrabold text-white uppercase hover:bg-[#5B21B6]"
+                    className="inline-flex min-h-[38px] items-center gap-1.5 rounded-[2px] border border-[#F05A32] bg-[#F05A32] px-3 py-1.5 font-mono text-[11px] font-extrabold text-[#080B0D] uppercase transition-colors hover:bg-[#D94E28]"
                   >
                     <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span>IMPACT MOMENT</span>
+                    <span>IMPACT PLAYER AVAILABLE</span>
                   </button>
                 )}
 
@@ -1710,10 +2038,10 @@ export function MatchCenter({
                       setBowlingMode(nextMode);
                       setIsAutoStepping(nextMode === 'AUTO');
                     }}
-                    className={`inline-flex min-h-[38px] items-center gap-1.5 rounded-[3px] border px-3.5 py-1.5 font-mono text-xs font-bold uppercase ${
+                    className={`inline-flex min-h-[38px] items-center gap-1.5 rounded-[2px] border px-3.5 py-1.5 font-mono text-xs font-bold uppercase transition-colors ${
                       bowlingMode === 'MANUAL'
-                        ? 'border-emerald-300 bg-emerald-700 text-white'
-                        : 'border-white/25 bg-white/10 text-white'
+                        ? 'border-[#22D36B]/60 bg-[#0A2014] text-[#22D36B]'
+                        : 'border-[#263039] bg-[#111820] text-[#F5F2EA]'
                     }`}
                   >
                     <Shield className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1732,9 +2060,9 @@ export function MatchCenter({
                         setIsAutoStepping(false);
                         stepOneBall();
                       }}
-                      className="inline-flex min-h-[38px] items-center gap-1.5 rounded-[3px] border border-white/25 bg-white/10 px-3 py-1.5 font-mono text-xs font-bold text-white uppercase hover:bg-white/20"
+                      className="inline-flex min-h-[38px] items-center gap-1.5 rounded-[2px] border border-[#263039] bg-[#111820] px-3 py-1.5 font-mono text-xs font-bold text-[#F5F2EA] uppercase hover:border-[#22D36B]"
                     >
-                      <Play className="h-3 w-3" aria-hidden="true" />
+                      <Play className="h-3 w-3 text-[#22D36B]" aria-hidden="true" />
                       <span>1 BALL</span>
                     </button>
                     <button
@@ -1744,7 +2072,7 @@ export function MatchCenter({
                         setIsAutoStepping(false);
                         stepOneOver();
                       }}
-                      className="inline-flex min-h-[38px] items-center gap-1.5 rounded-[3px] border border-white/25 bg-white/10 px-3.5 py-1.5 font-mono text-xs font-bold text-white uppercase hover:bg-white/20"
+                      className="inline-flex min-h-[38px] items-center gap-1.5 rounded-[2px] border border-[#22D36B] bg-[#22D36B] px-3.5 py-1.5 font-mono text-xs font-extrabold text-[#06110A] uppercase hover:bg-[#1EC161]"
                     >
                       <Play className="h-3.5 w-3.5" aria-hidden="true" />
                       <span>BOWL OVER {currentOverNum}</span>
@@ -1758,7 +2086,7 @@ export function MatchCenter({
                   type="button"
                   data-testid="skip-animation-btn"
                   onClick={() => simulateRemainingInningsOrMatch(false)}
-                  className="inline-flex min-h-[38px] items-center gap-1.5 rounded-[3px] bg-[#D94E28] px-3.5 py-1.5 font-mono text-xs font-extrabold text-white uppercase hover:bg-[#B83C1B]"
+                  className="inline-flex min-h-[38px] items-center gap-1.5 rounded-[2px] border border-[#22D36B] bg-[#22D36B] px-3.5 py-1.5 font-mono text-xs font-extrabold text-[#06110A] uppercase transition-colors hover:bg-[#1EC161]"
                 >
                   <FastForward className="h-3.5 w-3.5" aria-hidden="true" />
                   <span>SIMULATE REST OF MATCH</span>
@@ -1768,7 +2096,7 @@ export function MatchCenter({
                   type="button"
                   data-testid="skip-to-scorecard-btn"
                   onClick={() => simulateRemainingInningsOrMatch(true)}
-                  className="inline-flex min-h-[38px] items-center gap-1.5 rounded-[3px] border border-white/25 bg-white/10 px-3.5 py-1.5 font-mono text-xs font-bold text-white uppercase hover:bg-white/20"
+                  className="inline-flex min-h-[38px] items-center gap-1.5 rounded-[2px] border border-[#263039] bg-[#111820] px-3.5 py-1.5 font-mono text-xs font-bold text-[#F5F2EA] uppercase transition-colors hover:border-[#22D36B]/60"
                 >
                   <FileText className="h-3.5 w-3.5" aria-hidden="true" />
                   <span>SKIP TO SCORECARD</span>
@@ -1791,14 +2119,14 @@ export function MatchCenter({
           {isUserBowlingNow && (
             <div
               data-testid="bowling-management-panel"
-              className="border-2 border-[#141619] bg-[#FAF8F3] shadow-[4px_4px_0px_#141619]"
+              className="border border-[#263039] bg-[#0E1318]"
             >
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-[#141619] bg-[#EFE9DC] px-4 py-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#263039] bg-[#111820] px-4 py-2.5">
                 <div>
-                  <div className="font-mono text-[10px] font-bold text-[#D94E28] uppercase">
+                  <div className="font-mono text-[10px] font-bold text-[#F5B942] uppercase">
                     CAPTAINCY DECISION · OVER {currentOverNum} OF 20 ({SIM_CONFIG.phases[currentPhase].label})
                   </div>
-                  <h3 className="font-display text-xl font-extrabold text-[#141619] uppercase">
+                  <h3 className="font-display text-xl font-extrabold text-[#F5F2EA] uppercase">
                     CHOOSE NEXT BOWLER &amp; TACTICAL PLAN
                   </h3>
                 </div>
@@ -1812,7 +2140,7 @@ export function MatchCenter({
                     );
                     stepOneOver(auto.bowlerId, auto.planId);
                   }}
-                  className="inline-flex min-h-[38px] items-center gap-1.5 rounded-[3px] border-2 border-[#141619] bg-[#0D1B2A] px-4 py-1.5 font-mono text-xs font-extrabold text-[#F59E0B] uppercase hover:bg-[#162B42]"
+                  className="inline-flex min-h-[38px] items-center gap-1.5 rounded-[2px] border border-[#F5B942]/60 bg-[#201A0A] px-4 py-1.5 font-mono text-xs font-extrabold text-[#F5B942] uppercase transition-colors hover:bg-[#2B230D]"
                 >
                   <Zap className="h-3.5 w-3.5" aria-hidden="true" />
                   <span>AUTO SELECT BOWLER</span>
@@ -1820,8 +2148,8 @@ export function MatchCenter({
               </div>
 
               {/* Phase Tactical Plans */}
-              <div className="border-b border-[#141619]/20 bg-[#F4EFE4] px-4 py-3">
-                <div className="font-mono text-[10px] font-bold text-[#4A4E54] uppercase">
+              <div className="border-b border-[#263039] bg-[#080B0D] px-4 py-3">
+                <div className="font-mono text-[10px] font-bold text-[#9DA8B3] uppercase">
                   Phase Bowling Plan ({SIM_CONFIG.phases[currentPhase].shortLabel})
                 </div>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -1833,8 +2161,8 @@ export function MatchCenter({
                       onClick={() => setSelectedPlanId(plan.id)}
                       className={`rounded-[2px] border px-2.5 py-1 font-mono text-[10.5px] font-extrabold uppercase transition-colors ${
                         activePlanMeta.id === plan.id
-                          ? 'border-[#141619] bg-[#D94E28] text-white'
-                          : 'border-[#141619]/30 bg-white text-[#141619] hover:border-[#141619]'
+                          ? 'border-[#22D36B] bg-[#22D36B] text-[#06110A]'
+                          : 'border-[#263039] bg-[#111820] text-[#9DA8B3] hover:border-[#22D36B]/50 hover:text-[#F5F2EA]'
                       }`}
                     >
                       {plan.label}
@@ -1843,10 +2171,10 @@ export function MatchCenter({
                 </div>
                 {activePlanMeta && (
                   <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 font-mono text-[10.5px]">
-                    <span className="text-[#157F3D]">
+                    <span className="text-[#22D36B]">
                       <strong>+</strong> {activePlanMeta.strength}
                     </span>
-                    <span className="text-[#B83C1B]">
+                    <span className="text-[#F05A32]">
                       <strong>Risk:</strong> {activePlanMeta.risk}
                     </span>
                   </div>
@@ -1857,7 +2185,7 @@ export function MatchCenter({
               <div data-testid="bowler-select-table" className="overflow-x-auto">
                 <table className="w-full border-collapse text-left text-xs">
                   <thead>
-                    <tr className="border-b border-[#141619]/20 bg-[#EFE9DC] font-mono text-[10px] font-bold text-[#4A4E54] uppercase">
+                    <tr className="border-b border-[#263039] bg-[#111820] font-mono text-[10px] font-bold text-[#9DA8B3] uppercase">
                       <th className="px-3 py-2">Bowler</th>
                       <th className="px-2 py-2">Type</th>
                       <th className="px-2 py-2 text-right">BWL/IMP</th>
@@ -1872,7 +2200,7 @@ export function MatchCenter({
                       <th className="px-3 py-2 text-right">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[#141619]/10 bg-white">
+                  <tbody className="divide-y divide-[#263039] bg-[#0E1318]">
                     {bowlerOptions.map((opt) => {
                       const typeLabel =
                         opt.bowlerType === 'NONE'
@@ -1884,45 +2212,45 @@ export function MatchCenter({
                         <tr
                           key={opt.player.playerId}
                           data-testid={`bowler-row-${opt.player.playerId}`}
-                          className={!opt.canBowlNow ? 'bg-[#FAF8F3]/75 opacity-70' : ''}
+                          className={!opt.canBowlNow ? 'bg-[#080B0D]/60 opacity-60' : 'hover:bg-[#111820]'}
                         >
                           <td className="px-3 py-2">
-                            <div className="flex flex-wrap items-center gap-1.5 font-bold text-[#141619]">
+                            <div className="flex flex-wrap items-center gap-1.5 font-bold text-[#F5F2EA]">
                               <span>{opt.player.playerName}</span>
                               {opt.isRecommended &&
                                 opt.canBowlNow &&
                                 diffUi.showRecommendedBadge && (
-                                  <span className="rounded-[2px] bg-[#157F3D] px-1.5 py-0.5 font-mono text-[8.5px] font-extrabold text-white">
+                                  <span className="rounded-[2px] border border-[#22D36B]/50 bg-[#0A2014] px-1.5 py-0.5 font-mono text-[8.5px] font-extrabold text-[#22D36B]">
                                     BEST FIT
                                   </span>
                                 )}
                               {opt.currentSpellOvers >= 2 && opt.canBowlNow && (
-                                <span className="rounded-[2px] bg-[#FEF3C7] px-1 font-mono text-[8.5px] font-bold text-[#B45309]">
+                                <span className="rounded-[2px] border border-[#F5B942]/45 bg-[#201A0A] px-1 font-mono text-[8.5px] font-bold text-[#F5B942]">
                                   SPELL {opt.currentSpellOvers}
                                 </span>
                               )}
                             </div>
                           </td>
-                          <td className="px-2 py-2 font-mono text-[10.5px] font-semibold text-[#4A4E54]">
+                          <td className="px-2 py-2 font-mono text-[10.5px] font-semibold text-[#9DA8B3]">
                             {typeLabel}
                           </td>
-                          <td className="px-2 py-2 text-right font-mono text-[11px] tabular-nums">
+                          <td className="px-2 py-2 text-right font-mono text-[11px] text-[#F5F2EA] tabular-nums">
                             {opt.player.bowlingRating}/
-                            <span className="text-[#6D28D9]">{opt.player.impactRating}</span>
+                            <span className="text-[#F05A32]">{opt.player.impactRating}</span>
                           </td>
-                          <td className="px-2 py-2 text-right font-mono tabular-nums">
+                          <td className="px-2 py-2 text-right font-mono text-[#9DA8B3] tabular-nums">
                             {formatOversDisplay(opt.oversBowled)}
                           </td>
-                          <td className="px-2 py-2 text-right font-mono tabular-nums">
+                          <td className="px-2 py-2 text-right font-mono text-[#9DA8B3] tabular-nums">
                             {opt.runsConceded}
                           </td>
-                          <td className="px-2 py-2 text-right font-mono font-extrabold tabular-nums">
+                          <td className="px-2 py-2 text-right font-mono font-extrabold text-[#22D36B] tabular-nums">
                             {opt.wickets}
                           </td>
-                          <td className="px-2 py-2 text-right font-mono tabular-nums">
+                          <td className="px-2 py-2 text-right font-mono text-[#9DA8B3] tabular-nums">
                             {opt.ballsBowled > 0 ? opt.economy.toFixed(2) : '—'}
                           </td>
-                          <td className="px-2 py-2 text-right font-mono font-extrabold text-[#141619] tabular-nums">
+                          <td className="px-2 py-2 text-right font-mono font-extrabold text-[#F5F2EA] tabular-nums">
                             {opt.oversRemaining}
                           </td>
                           {diffUi.showFullMatchupHints && (
@@ -1930,7 +2258,7 @@ export function MatchCenter({
                               {opt.eligible ? (
                                 <MatchupBadge matchup={opt.matchup} />
                               ) : (
-                                <span className="font-mono text-[9.5px] text-[#4A4E54]">—</span>
+                                <span className="font-mono text-[9.5px] text-[#9DA8B3]">—</span>
                               )}
                             </td>
                           )}
@@ -1942,14 +2270,14 @@ export function MatchCenter({
                                 onClick={() =>
                                   stepOneOver(opt.player.playerId, activePlanMeta.id)
                                 }
-                                className="min-h-[32px] rounded-[2px] border border-[#141619] bg-[#D94E28] px-3 py-1 font-mono text-[10.5px] font-extrabold text-white uppercase hover:bg-[#B83C1B]"
+                                className="min-h-[32px] rounded-[2px] border border-[#22D36B] bg-[#22D36B] px-3 py-1 font-mono text-[10.5px] font-extrabold text-[#06110A] uppercase transition-colors hover:bg-[#1EC161]"
                               >
                                 BOWL OV {currentOverNum}
                               </button>
                             ) : (
                               <span
                                 data-testid={`bowler-disabled-${opt.player.playerId}`}
-                                className="inline-block rounded-[2px] border border-[#141619]/20 bg-[#EFE9DC] px-2 py-1 font-mono text-[9px] font-bold text-[#4A4E54] uppercase"
+                                className="inline-block rounded-[2px] border border-[#263039] bg-[#111820] px-2 py-1 font-mono text-[9px] font-bold text-[#9DA8B3] uppercase"
                               >
                                 {opt.disabledReason}
                               </span>
@@ -1966,66 +2294,79 @@ export function MatchCenter({
         </div>
       )}
 
-      {/* STAGE 3: MID-MATCH IMPACT MOMENT */}
+      {/* STAGE 3: MID-MATCH IMPACT MOMENT (DRAMATIC COMPACT MODAL OVERLAY) */}
       {stage === 'IMPACT_MOMENT' && (
         <div
-          data-testid="impact-moment-panel"
-          className="mt-4 border-2 border-[#141619] bg-[#FAF8F3] shadow-[4px_4px_0px_#141619]"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Impact Moment Substitution"
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/85 p-3 sm:p-5"
         >
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-[#141619] bg-[#0D1B2A] px-5 py-3.5 text-white">
-            <div>
-              <div className="flex items-center gap-2 font-mono text-[11px] font-bold tracking-widest text-[#F59E0B] uppercase">
-                <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-                <span>IMPACT MOMENT · TACTICAL SUBSTITUTION</span>
+          <div
+            data-testid="impact-moment-panel"
+            className="my-auto max-h-[92vh] w-full max-w-4xl overflow-y-auto border border-[#F05A32]/70 bg-[#0E1318] text-[#F5F2EA] shadow-2xl"
+          >
+            {/* Header: IMPACT MOMENT + Score / Overs / Required Rate */}
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#263039] bg-[#111820] px-4 py-3.5 text-[#F5F2EA] sm:px-5">
+              <div>
+                <div className="flex items-center gap-1.5 font-mono text-[10.5px] font-extrabold tracking-[0.16em] text-[#F05A32] uppercase">
+                  <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span>IMPACT MOMENT</span>
+                </div>
+                <h2 className="mt-0.5 font-display text-2xl font-extrabold tracking-wide uppercase sm:text-3xl">
+                  {activeInningsState
+                    ? `${activeInningsState.battingTeam.shortName} ${activeInningsState.runs}/${activeInningsState.wickets} (${formatOversDisplay(ballsToCricketOvers(activeInningsState.legalBalls))} OV)`
+                    : inn1Summary
+                      ? `${season.teams[inn1Summary.teamId].shortName} ${inn1Summary.runs}/${inn1Summary.wickets}`
+                      : 'TACTICAL SUBSTITUTION'}
+                </h2>
+                <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-[11px] text-[#9DA8B3] tabular-nums">
+                  <span>
+                    SITUATION:{' '}
+                    <strong className="text-[#F5F2EA]">
+                      {detectedLiveSituation.replace(/_/g, ' ')}
+                    </strong>
+                  </span>
+                  <span className="text-[#263039]">·</span>
+                  <span>
+                    OVERS LEFT: <strong className="text-[#22D36B]">{oversRemainingForImpact}</strong>
+                  </span>
+                  <span className="text-[#263039]">·</span>
+                  <span>
+                    REQ RATE: <strong className="text-[#F5B942]">{liveRrr ?? '1st Inn'}</strong>
+                  </span>
+                </div>
               </div>
-              <h2 className="mt-0.5 font-display text-2xl font-extrabold uppercase">
-                {inn1Summary
-                  ? `1st Innings: ${season.teams[inn1Summary.teamId].shortName} ${inn1Summary.runs}/${inn1Summary.wickets} · Target ${inn1Summary.runs + 1}`
-                  : activeInningsState
-                    ? `${activeInningsState.battingTeam.shortName} ${activeInningsState.runs}/${activeInningsState.wickets} (${formatOversDisplay(ballsToCricketOvers(activeInningsState.legalBalls))} ov)`
-                    : 'Tactical Substitution'}
-              </h2>
-              <div className="mt-1 flex flex-wrap gap-3 font-mono text-[10.5px] text-emerald-300">
-                <span>OVERS REMAINING: {oversRemainingForImpact}</span>
-                <span>·</span>
-                <span>POTENTIAL IMPACT OVERS: {potentialImpactOvers}</span>
-                <span>·</span>
-                <span>PITCH: {pitchMeta.label}</span>
-              </div>
+
+              <button
+                type="button"
+                data-testid="skip-impact-btn"
+                onClick={() => {
+                  if (inningsNumber === 1 && inn1State?.isCompleted) {
+                    beginSecondInningsFromFirst(inn1State);
+                  }
+                  setStage('LIVE');
+                }}
+                className="inline-flex h-8 items-center gap-1 rounded-[2px] border border-[#263039] bg-[#0E1318] px-3 font-mono text-[10.5px] font-bold text-[#F5F2EA] uppercase hover:border-[#9DA8B3]"
+              >
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>Skip</span>
+              </button>
             </div>
 
-            <button
-              type="button"
-              data-testid="skip-impact-btn"
-              onClick={() => {
-                if (inningsNumber === 1 && inn1State?.isCompleted) {
-                  beginSecondInningsFromFirst(inn1State);
-                }
-                setStage('LIVE');
-              }}
-              className="min-h-[36px] rounded-[2px] border border-white/25 bg-white/10 px-3 py-1 font-mono text-[11px] font-bold text-white uppercase hover:bg-white/20"
+            {/* Compact Tactical Situation Recommendation Strip */}
+            <div
+              data-testid="impact-tactical-advisor"
+              className="flex flex-wrap items-center justify-between gap-2 border-b border-[#263039] bg-[#080B0D] px-4 py-2"
             >
-              Skip Impact Sub
-            </button>
-          </div>
-
-          {/* Tactical Situation Detector & Pitch-Aware Specialist Recommendation */}
-          <div
-            data-testid="impact-tactical-advisor"
-            className="border-b border-[#141619]/20 bg-[#F4EFE4] px-4 py-3"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="font-mono text-[10.5px] font-bold tracking-wider text-[#4A4E54] uppercase">
-                Tactical Situation Analysis (Pitch + Phase Specialists)
-              </div>
-              <div className="flex flex-wrap gap-1">
+              <div className="flex flex-wrap items-center gap-1">
                 {(
                   [
                     ['POWERPLAY_COLLAPSE', 'PP Collapse'],
                     ['MIDDLE_VS_SPIN', 'Mid vs Spin'],
-                    ['DEATH_FINISH', 'Need 65 off 5'],
+                    ['DEATH_FINISH', 'Death Finish'],
                     ['NEED_WICKETS', 'Need Wickets'],
-                    ['DEFENDING_DEATH', 'Defend Final 5'],
+                    ['DEFENDING_DEATH', 'Defend Death'],
                   ] as Array<[ImpactSituationType, string]>
                 ).map(([sitKey, sitShort]) => (
                   <button
@@ -2033,314 +2374,345 @@ export function MatchCenter({
                     type="button"
                     data-testid={`impact-situation-${sitKey}`}
                     onClick={() => setImpactSituationOverride(sitKey)}
-                    className={`rounded-[2px] border px-2 py-0.5 font-mono text-[10px] font-bold uppercase transition-colors ${
+                    className={`rounded-[2px] border px-2 py-0.5 font-mono text-[9.5px] font-bold uppercase ${
                       detectedLiveSituation === sitKey
-                        ? 'border-[#141619] bg-[#0D1B2A] text-[#F59E0B]'
-                        : 'border-[#141619]/25 bg-white text-[#4A4E54] hover:border-[#141619]'
+                        ? 'border-[#F05A32] bg-[#23120D] text-[#F05A32]'
+                        : 'border-[#263039] bg-[#111820] text-[#9DA8B3] hover:text-[#F5F2EA]'
                     }`}
                   >
                     {sitShort}
                   </button>
                 ))}
               </div>
-            </div>
 
-            {topImpactRec && (
-              <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 border border-[#6D28D9]/40 bg-white px-3 py-2">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="rounded-[2px] bg-[#6D28D9] px-1.5 py-0.5 font-mono text-[9.5px] font-extrabold text-white uppercase">
-                      TACTICAL PICK
-                    </span>
-                    <span className="text-xs font-extrabold text-[#141619]">
-                      {topImpactRec.playerName}
-                    </span>
-                    <span className="font-mono text-[10.5px] font-bold text-[#6D28D9]">
-                      Score {topImpactRec.tacticalScore}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 font-mono text-[10.5px] text-[#4A4E54]">
-                    {topImpactRec.headlineReason}
-                    {topImpactRec.suggestedOutName
-                      ? ` · Suggested OUT: ${topImpactRec.suggestedOutName}`
-                      : ''}
-                  </p>
-                </div>
-
-                {topImpactRec.suggestedOutId && (
-                  <button
-                    type="button"
-                    data-testid="apply-recommended-impact-btn"
-                    onClick={() => {
-                      setSelectedInId(topImpactRec.playerId);
-                      setSelectedOutId(topImpactRec.suggestedOutId);
-                    }}
-                    className="rounded-[2px] border border-[#141619] bg-[#6D28D9] px-2.5 py-1 font-mono text-[10.5px] font-extrabold text-white uppercase hover:bg-[#5B21B6]"
-                  >
-                    Apply Tactical Pick
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-2">
-            {/* Step 1: Pick Bench Player IN */}
-            <div className="border border-[#141619] bg-white">
-              <div className="border-b border-[#141619]/20 bg-[#EFE9DC] px-3 py-2 font-mono text-xs font-extrabold text-[#141619] uppercase">
-                1. Choose IMPACT PLAYER IN (Bench)
-              </div>
-              <div className="divide-y divide-[#141619]/10">
-                {benchPlayers.map((p) => {
-                  const isPicked = selectedInId === p.playerId;
-                  const rec = impactRecommendations.find((r) => r.playerId === p.playerId);
-                  const isTopPick = topImpactRec?.playerId === p.playerId;
-                  return (
-                    <button
-                      key={p.playerId}
-                      type="button"
-                      data-testid={`impact-in-${p.playerId}`}
-                      onClick={() => setSelectedInId(p.playerId)}
-                      className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition-colors ${
-                        isPicked ? 'bg-[#6D28D9]/12' : 'hover:bg-[#FAF8F3]'
-                      }`}
-                    >
-                      <div className="flex min-w-0 items-center gap-2">
-                        <RoleBadge role={p.role} bowlingStyle={p.bowlingStyle} />
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="truncate text-xs font-extrabold text-[#141619]">
-                              {p.playerName}
-                            </span>
-                            <span
-                              className={`rounded-[2px] px-1 font-mono text-[9px] font-bold ${
-                                p.isOverseas === true
-                                  ? 'bg-[#FEF3C7] text-[#B45309]'
-                                  : 'bg-[#DCFCE7] text-[#157F3D]'
-                              }`}
-                            >
-                              {p.isOverseas === true ? 'OS' : 'IND'}
-                            </span>
-                            {isTopPick && (
-                              <span className="rounded-[2px] bg-[#6D28D9] px-1 font-mono text-[8.5px] font-extrabold text-white">
-                                BEST FIT
-                              </span>
-                            )}
-                          </div>
-                          <div className="font-mono text-[10px] text-[#4A4E54] tabular-nums">
-                            BAT {p.battingRating} · BWL {p.bowlingRating} · IMP{' '}
-                            <span className="font-bold text-[#6D28D9]">{p.impactRating}</span> · OVR{' '}
-                            {p.overallRating}
-                          </div>
-                          {rec && (
-                            <div className="font-mono text-[9.5px] text-[#6D28D9]">
-                              {rec.keyAttributes.map((a) => `${a.label} ${a.value}`).join(' · ')}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <span
-                        className={`rounded-[2px] px-2 py-0.5 font-mono text-[10px] font-extrabold uppercase ${
-                          isPicked
-                            ? 'bg-[#6D28D9] text-white'
-                            : 'border border-[#141619]/25 text-[#4A4E54]'
-                        }`}
-                      >
-                        {isPicked ? 'IN ✓' : 'SELECT'}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Step 2: Pick Active XI Player OUT */}
-            <div className="border border-[#141619] bg-white">
-              <div className="border-b border-[#141619]/20 bg-[#EFE9DC] px-3 py-2 font-mono text-xs font-extrabold text-[#141619] uppercase">
-                2. Choose PLAYER OUT (Active XI)
-              </div>
-              <div className="max-h-[300px] divide-y divide-[#141619]/10 overflow-y-auto">
-                {userTeam.players.map((p) => {
-                  const isPicked = selectedOutId === p.playerId;
-                  return (
-                    <button
-                      key={p.playerId}
-                      type="button"
-                      data-testid={`impact-out-${p.playerId}`}
-                      onClick={() => setSelectedOutId(p.playerId)}
-                      className={`flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left transition-colors ${
-                        isPicked ? 'bg-[#D94E28]/12' : 'hover:bg-[#FAF8F3]'
-                      }`}
-                    >
-                      <div className="flex min-w-0 items-center gap-2">
-                        <RoleBadge role={p.role} bowlingStyle={p.bowlingStyle} />
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <span className="truncate text-xs font-bold text-[#141619]">
-                              {p.playerName}
-                            </span>
-                            {p.isOverseas && (
-                              <span className="rounded-[2px] bg-[#FEF3C7] px-1 font-mono text-[9px] font-bold text-[#B45309]">
-                                OS
-                              </span>
-                            )}
-                          </div>
-                          <div className="font-mono text-[10px] text-[#4A4E54] tabular-nums">
-                            BAT {p.battingRating} · BWL {p.bowlingRating} · OVR {p.overallRating}
-                          </div>
-                        </div>
-                      </div>
-                      <span
-                        className={`rounded-[2px] px-2 py-0.5 font-mono text-[10px] font-extrabold uppercase ${
-                          isPicked
-                            ? 'bg-[#D94E28] text-white'
-                            : 'border border-[#141619]/25 text-[#4A4E54]'
-                        }`}
-                      >
-                        {isPicked ? 'OUT ✓' : 'SUB OUT'}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#141619]/20 bg-[#EFE9DC] px-4 py-3">
-            <div className="text-xs font-semibold text-[#141619]">
-              {selectedInPlayer && selectedOutPlayer ? (
-                impactEligibility?.allowed ? (
-                  <span className="flex flex-wrap items-center gap-1.5">
-                    <ArrowLeftRight className="h-4 w-4 text-[#6D28D9]" aria-hidden="true" />
-                    <span>
-                      IN: <strong>{selectedInPlayer.playerName}</strong> · OUT:{' '}
-                      <strong>{selectedOutPlayer.playerName}</strong>
-                    </span>
-                    {impactEligibility.wasFifthOverseas && (
-                      <span className="rounded-[2px] bg-[#B45309] px-1.5 py-0.5 font-mono text-[10px] font-extrabold text-white">
-                        5TH OVERSEAS IMPACT
-                      </span>
-                    )}
-                  </span>
-                ) : (
-                  <span className="text-[#D94E28]">{impactEligibility?.reason}</span>
-                )
-              ) : (
-                <span className="text-[#4A4E54]">
-                  Select 1 Bench player IN and 1 XI player OUT to activate your Impact sub.
-                </span>
+              {topImpactRec && topImpactRec.suggestedOutId && (
+                <button
+                  type="button"
+                  data-testid="apply-recommended-impact-btn"
+                  onClick={() => {
+                    setSelectedInId(topImpactRec.playerId);
+                    setSelectedOutId(topImpactRec.suggestedOutId);
+                  }}
+                  className="rounded-[2px] border border-[#F05A32] bg-[#F05A32] px-2.5 py-1 font-mono text-[10px] font-extrabold text-[#080B0D] uppercase hover:bg-[#D94E28]"
+                >
+                  Apply Pick: {topImpactRec.playerName}
+                </button>
               )}
             </div>
 
-            <button
-              type="button"
-              data-testid="confirm-impact-sub-btn"
-              disabled={!impactEligibility?.allowed}
-              onClick={handleConfirmImpactSub}
-              className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-[3px] border-2 border-[#141619] bg-[#D94E28] px-5 py-2 font-display text-lg font-extrabold tracking-wider text-white uppercase hover:bg-[#B83C1B] disabled:cursor-not-allowed disabled:opacity-45"
-            >
-              <Zap className="h-4 w-4" aria-hidden="true" />
-              <span>ACTIVATE IMPACT PLAYER</span>
-            </button>
+            {/* 4 Bench Options Compact Table: PLAYER | ROLE | BAT | BOWL | IMP | OVR */}
+            <div className="grid grid-cols-1 gap-3 p-4 lg:grid-cols-[1.2fr_0.9fr]">
+              <div className="border border-[#263039] bg-[#080B0D]">
+                <div className="border-b border-[#263039] bg-[#111820] px-3 py-1.5 font-mono text-[10px] font-extrabold text-[#F05A32] uppercase">
+                  1. PLAYER IN · IMPACT BENCH ({benchPlayers.length})
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-[#263039] bg-[#111820]/60 font-mono text-[9.5px] font-bold text-[#9DA8B3] uppercase">
+                        <th className="px-2.5 py-1.5">PLAYER</th>
+                        <th className="px-1.5 py-1.5">ROLE</th>
+                        <th className="px-1.5 py-1.5 text-center">BAT</th>
+                        <th className="px-1.5 py-1.5 text-center">BOWL</th>
+                        <th className="px-1.5 py-1.5 text-center">IMP</th>
+                        <th className="px-2 py-1.5 text-center">OVR</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#263039]">
+                      {benchPlayers.map((p) => {
+                        const isPicked = selectedInId === p.playerId;
+                        const isTopPick = topImpactRec?.playerId === p.playerId;
+                        return (
+                          <tr
+                            key={p.playerId}
+                            data-testid={`impact-in-${p.playerId}`}
+                            onClick={() => setSelectedInId(p.playerId)}
+                            className={`cursor-pointer transition-colors ${
+                              isPicked ? 'bg-[#23120D]' : 'hover:bg-[#111820]'
+                            }`}
+                          >
+                            <td className="px-2.5 py-2">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-bold text-[#F5F2EA]">{p.playerName}</span>
+                                {p.isOverseas && (
+                                  <span className="rounded-[2px] border border-[#F5B942]/40 bg-[#201A0A] px-1 font-mono text-[8.5px] font-bold text-[#F5B942]">
+                                    OS
+                                  </span>
+                                )}
+                                {isTopPick && (
+                                  <span className="rounded-[2px] bg-[#F05A32] px-1 font-mono text-[8px] font-extrabold text-[#080B0D]">
+                                    BEST
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-1.5 py-2">
+                              <RoleBadge role={p.role} bowlingStyle={p.bowlingStyle} />
+                            </td>
+                            <td className="px-1.5 py-2 text-center font-mono text-[#F5F2EA] tabular-nums">
+                              {p.battingRating}
+                            </td>
+                            <td className="px-1.5 py-2 text-center font-mono text-[#F5F2EA] tabular-nums">
+                              {p.bowlingRating}
+                            </td>
+                            <td className="px-1.5 py-2 text-center font-mono font-bold text-[#F05A32] tabular-nums">
+                              {p.impactRating}
+                            </td>
+                            <td className="px-2 py-2 text-center font-mono font-extrabold text-[#22D36B] tabular-nums">
+                              {p.overallRating}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Active XI Player OUT */}
+              <div className="border border-[#263039] bg-[#080B0D]">
+                <div className="border-b border-[#263039] bg-[#111820] px-3 py-1.5 font-mono text-[10px] font-extrabold text-[#9DA8B3] uppercase">
+                  2. PLAYER OUT · ACTIVE XI
+                </div>
+                <div className="max-h-[250px] divide-y divide-[#263039] overflow-y-auto">
+                  {userTeam.players.map((p) => {
+                    const isPicked = selectedOutId === p.playerId;
+                    return (
+                      <button
+                        key={p.playerId}
+                        type="button"
+                        data-testid={`impact-out-${p.playerId}`}
+                        onClick={() => setSelectedOutId(p.playerId)}
+                        className={`flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left text-xs transition-colors ${
+                          isPicked ? 'bg-[#23120D]' : 'hover:bg-[#111820]'
+                        }`}
+                      >
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <RoleBadge role={p.role} bowlingStyle={p.bowlingStyle} />
+                          <span className="truncate font-bold text-[#F5F2EA]">{p.playerName}</span>
+                          {p.isOverseas && (
+                            <span className="rounded-[2px] border border-[#F5B942]/40 bg-[#201A0A] px-1 font-mono text-[8.5px] font-bold text-[#F5B942]">
+                              OS
+                            </span>
+                          )}
+                        </div>
+                        <span
+                          className={`shrink-0 rounded-[2px] px-1.5 py-0.5 font-mono text-[9.5px] font-extrabold uppercase ${
+                            isPicked
+                              ? 'bg-[#F05A32] text-[#080B0D]'
+                              : 'border border-[#263039] text-[#9DA8B3]'
+                          }`}
+                        >
+                          {isPicked ? 'OUT ✓' : 'OUT'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Summary: PLAYER IN / PLAYER OUT + CONFIRM IMPACT */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#263039] bg-[#111820] px-4 py-3">
+              <div className="font-mono text-xs text-[#F5F2EA]">
+                {selectedInPlayer && selectedOutPlayer ? (
+                  impactEligibility?.allowed ? (
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span>
+                        <strong className="text-[#22D36B]">PLAYER IN:</strong>{' '}
+                        {selectedInPlayer.playerName}
+                      </span>
+                      <ArrowLeftRight className="h-3.5 w-3.5 text-[#F05A32]" aria-hidden="true" />
+                      <span>
+                        <strong className="text-[#F05A32]">PLAYER OUT:</strong>{' '}
+                        {selectedOutPlayer.playerName}
+                      </span>
+                      {impactEligibility.wasFifthOverseas && (
+                        <span className="rounded-[2px] bg-[#F5B942] px-1.5 py-0.5 text-[9.5px] font-extrabold text-[#080B0D]">
+                          5TH OS
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="font-bold text-[#E44949]">{impactEligibility?.reason}</span>
+                  )
+                ) : (
+                  <span className="text-[#9DA8B3]">
+                    Select PLAYER IN from bench and PLAYER OUT from XI.
+                  </span>
+                )}
+              </div>
+
+              <button
+                type="button"
+                data-testid="confirm-impact-sub-btn"
+                disabled={!impactEligibility?.allowed}
+                onClick={handleConfirmImpactSub}
+                className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-[2px] border border-[#F05A32] bg-[#F05A32] px-5 py-2 font-display text-lg font-extrabold tracking-wider text-[#080B0D] uppercase transition-colors hover:bg-[#D94E28] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Zap className="h-4 w-4" aria-hidden="true" />
+                <span>CONFIRM IMPACT</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* STAGE 4: POST-MATCH SUMMARY, D3 FLOW CHART & SCORECARDS */}
+      {/* STAGE 4: UNIFIED PREMIUM DARK RESULT PANEL */}
       {stage === 'POST_MATCH' && matchResult && (
         <div data-testid="match-post-summary" className="mt-4 space-y-4">
-          {/* Top Score Comparison Strip */}
-          <div className="grid grid-cols-1 divide-y divide-[#141619]/20 border-2 border-[#141619] bg-[#FAF8F3] sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-            <div className="px-4 py-3">
-              <div className="font-mono text-[10px] font-bold text-[#4A4E54] uppercase">
-                1st Innings · {season.teams[matchResult.firstInnings.teamId].name}
-              </div>
-              <div className="mt-0.5 font-mono text-2xl font-extrabold text-[#141619] tabular-nums">
-                {matchResult.firstInnings.runs}/{matchResult.firstInnings.wickets}{' '}
-                <span className="text-sm font-semibold text-[#4A4E54]">
-                  ({formatOversDisplay(matchResult.firstInnings.overs)} ov)
-                </span>
-              </div>
-            </div>
-
-            <div className="px-4 py-3">
-              <div className="font-mono text-[10px] font-bold text-[#4A4E54] uppercase">
-                2nd Innings · {season.teams[matchResult.secondInnings.teamId].name}
-              </div>
-              <div className="mt-0.5 font-mono text-2xl font-extrabold text-[#141619] tabular-nums">
-                {matchResult.secondInnings.runs}/{matchResult.secondInnings.wickets}{' '}
-                <span className="text-sm font-semibold text-[#4A4E54]">
-                  ({formatOversDisplay(matchResult.secondInnings.overs)} ov)
-                </span>
-              </div>
-            </div>
-
-            <div
-              className={`flex flex-col justify-center px-4 py-3 ${
-                matchResult.winnerId === 'YOU' ? 'bg-[#DCFCE7]' : 'bg-[#FFF1EE]'
-              }`}
-            >
-              <div className="font-mono text-[10px] font-bold text-[#4A4E54] uppercase">
-                Official Result
-              </div>
-              <div
-                className={`mt-0.5 font-display text-2xl font-extrabold uppercase ${
-                  matchResult.winnerId === 'YOU' ? 'text-[#157F3D]' : 'text-[#B83C1B]'
-                }`}
-              >
-                {season.teams[matchResult.winnerId].shortName} {matchResult.marginText}
-              </div>
-            </div>
-          </div>
-
-          {/* Dark Navy Match Result Card + Post-Match D3 Flow Chart */}
-          <div className="border-2 border-[#141619] bg-[#0D1B2A] p-5 text-white shadow-[4px_4px_0px_#141619]">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="border border-[#263039] bg-[#0E1318] p-5 text-[#F5F2EA]">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#263039] pb-3">
               <div className="flex items-center gap-2">
                 <Trophy
-                  className={`h-5 w-5 ${
-                    matchResult.winnerId === 'YOU' ? 'text-[#F59E0B]' : 'text-slate-400'
+                  className={`h-4 w-4 ${
+                    matchResult.winnerId === 'YOU' ? 'text-[#F5B942]' : 'text-[#9DA8B3]'
                   }`}
                   aria-hidden="true"
                 />
-                <span className="font-mono text-xs font-bold tracking-wider text-[#F59E0B] uppercase">
-                  {matchLabel} COMPLETE · {venue}
+                <span className="font-mono text-[11px] font-bold tracking-wider text-[#F5B942] uppercase">
+                  {matchLabel} · {venue}
                 </span>
               </div>
               {matchResult.impactSub && (
-                <span className="rounded-[2px] bg-[#6D28D9] px-2 py-0.5 font-mono text-[10px] font-extrabold text-white uppercase">
+                <span className="rounded-[2px] border border-[#F05A32]/60 bg-[#23120D] px-2 py-0.5 font-mono text-[10px] font-extrabold text-[#F05A32] uppercase">
                   IMP: {matchResult.impactSub.inPlayerName} IN / {matchResult.impactSub.outPlayerName} OUT
                 </span>
               )}
             </div>
+
+            {/* Championship Trophy Presentation (Final Win only, skippable) */}
+            {isFinalMatch &&
+              matchResult.winnerId === 'YOU' &&
+              !championsOverlayDismissed && (
+                <div
+                  data-testid="champions-celebration-banner"
+                  className="ip-result-reveal mt-3 border border-[#22D36B] bg-[#0A2014] p-4 text-center text-[#F5F2EA]"
+                >
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-[2px] border border-[#22D36B] bg-[#133222] text-[#22D36B]">
+                    <Trophy className="h-6 w-6" aria-hidden="true" />
+                  </div>
+                  <div className="mt-2 font-mono text-[10.5px] font-extrabold tracking-[0.22em] text-[#22D36B] uppercase">
+                    SEASON {season.seasonNumber} IPL CHAMPIONS
+                  </div>
+                  <div className="mt-1 font-display text-4xl font-extrabold tracking-wide text-[#F5F2EA] uppercase sm:text-5xl">
+                    CHAMPIONS · {userTeam.name}
+                  </div>
+                  <p className="mt-1 font-mono text-xs text-[#9DA8B3]">
+                    {matchResult.marginText.replace(/^Win by /i, 'Won the Final by ')}
+                    {matchResult.playerOfTheMatch
+                      ? ` · Final POTM: ${matchResult.playerOfTheMatch.playerName}`
+                      : ''}
+                  </p>
+                  <button
+                    type="button"
+                    data-testid="skip-champions-btn"
+                    onClick={() => setChampionsOverlayDismissed(true)}
+                    className="mt-3 inline-flex min-h-[32px] items-center justify-center rounded-[2px] border border-[#263039] bg-[#111820] px-3.5 py-1 font-mono text-[10px] font-bold tracking-wider text-[#F5F2EA] uppercase hover:border-[#22D36B]"
+                  >
+                    SKIP / CONTINUE
+                  </button>
+                </div>
+              )}
+
+            {/* Unified Scorelines + Official Result Headline */}
+            {(() => {
+              const resultPres = classifyMatchResultPresentation(
+                {
+                  winnerId: matchResult.winnerId,
+                  resultText: matchResult.marginText,
+                  isSuperOver: Boolean(matchResult.superOver),
+                  isTie: false,
+                },
+                'YOU',
+                isFinalMatch
+              );
+              const badgeStyle =
+                resultPres.variant === 'CHAMPIONS' || resultPres.variant === 'VICTORY'
+                  ? 'border-[#22D36B]/60 bg-[#0A2014] text-[#22D36B]'
+                  : resultPres.variant === 'SUPER_OVER'
+                    ? 'border-[#F05A32] bg-[#23120D] text-[#F05A32]'
+                    : 'border-[#E44949]/60 bg-[#231012] text-[#F87171]';
+
+              return (
+            <div className="ip-result-reveal mt-4 grid grid-cols-1 gap-3 border border-[#263039] bg-[#111820] p-4 sm:grid-cols-[1fr_1fr_1.1fr] sm:items-center">
+              <div>
+                <div className="font-mono text-[10px] font-bold text-[#9DA8B3] uppercase">
+                  {season.teams[matchResult.firstInnings.teamId].shortName}
+                </div>
+                <div className="mt-0.5 font-mono text-2xl font-extrabold text-[#F5F2EA] tabular-nums sm:text-3xl">
+                  {matchResult.firstInnings.runs}/{matchResult.firstInnings.wickets}
+                </div>
+                <div className="font-mono text-[11px] text-[#9DA8B3] tabular-nums">
+                  ({formatOversDisplay(matchResult.firstInnings.overs)} ov)
+                </div>
+              </div>
+
+              <div className="border-t border-[#263039] pt-2.5 sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0">
+                <div className="font-mono text-[10px] font-bold text-[#9DA8B3] uppercase">
+                  {season.teams[matchResult.secondInnings.teamId].shortName}
+                </div>
+                <div className="mt-0.5 font-mono text-2xl font-extrabold text-[#F5F2EA] tabular-nums sm:text-3xl">
+                  {matchResult.secondInnings.runs}/{matchResult.secondInnings.wickets}
+                </div>
+                <div className="font-mono text-[11px] text-[#9DA8B3] tabular-nums">
+                  ({formatOversDisplay(matchResult.secondInnings.overs)} ov)
+                </div>
+              </div>
+
+              <div className="border-t border-[#263039] pt-2.5 sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0">
+                <div className="flex items-center gap-2">
+                  <span
+                    data-testid="match-result-verdict"
+                    className={`rounded-[2px] border px-2 py-0.5 font-mono text-[10px] font-extrabold tracking-widest uppercase ${badgeStyle}`}
+                  >
+                    {resultPres.headline}
+                  </span>
+                </div>
+                <div
+                  className={`mt-1 font-display text-2xl font-extrabold tracking-wide uppercase sm:text-3xl ${
+                    resultPres.variant === 'DEFEAT'
+                      ? 'text-[#F87171]'
+                      : resultPres.variant === 'SUPER_OVER'
+                        ? 'text-[#F05A32]'
+                        : 'text-[#22D36B]'
+                  }`}
+                >
+                  {season.teams[matchResult.winnerId].shortName}{' '}
+                  {matchResult.marginText.replace(/^Win by /i, 'WON BY ')}
+                </div>
+              </div>
+            </div>
+              );
+            })()}
 
             {matchResult.superOver &&
               matchResult.superOverHistory &&
               matchResult.superOverHistory.length > 0 && (
                 <div
                   data-testid="super-over-summary"
-                  className="mt-3 border border-[#F59E0B]/40 bg-[#132338] p-3 font-mono text-xs"
+                  className="mt-3 border border-[#F5B942]/45 bg-[#111820] p-3 font-mono text-xs"
                 >
-                  <div className="font-bold text-[#F59E0B] uppercase">
+                  <div className="font-bold text-[#F5B942] uppercase">
                     SUPER OVER TIEBREAKER ({matchResult.superOverHistory.length} ROUND
                     {matchResult.superOverHistory.length > 1 ? 'S' : ''})
                   </div>
-                  <div className="mt-1.5 space-y-1 text-slate-200">
+                  <div className="mt-1.5 space-y-1 text-[#9DA8B3]">
                     {matchResult.superOverHistory.map((so) => (
                       <div key={so.round} className="flex flex-wrap items-center justify-between gap-2">
                         <span>
                           SO #{so.round}: {season.teams[so.firstTeam.teamId].shortName}{' '}
-                          <strong>
+                          <strong className="text-[#F5F2EA]">
                             {so.firstTeam.runs}/{so.firstTeam.wickets}
                           </strong>{' '}
                           ({so.firstTeam.ballsSequence.join(' ')}) vs{' '}
                           {season.teams[so.secondTeam.teamId].shortName}{' '}
-                          <strong>
+                          <strong className="text-[#F5F2EA]">
                             {so.secondTeam.runs}/{so.secondTeam.wickets}
                           </strong>{' '}
                           ({so.secondTeam.ballsSequence.join(' ')})
                         </span>
-                        <span className="font-bold text-emerald-300">
+                        <span className="font-bold text-[#22D36B]">
                           {so.winnerId === 'TIE'
                             ? 'TIED'
                             : `${season.teams[so.winnerId].shortName} WON`}
@@ -2351,19 +2723,20 @@ export function MatchCenter({
                 </div>
               )}
 
-            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+            {/* Player of the Match · Best Impact · Key Moment */}
+            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
               {matchResult.playerOfTheMatch && (
-                <div className="border border-white/15 bg-[#132338] p-3.5">
-                  <div className="flex items-center gap-1.5 font-mono text-[10px] font-bold text-[#F59E0B] uppercase">
+                <div className="border border-[#263039] bg-[#111820] p-3">
+                  <div className="flex items-center gap-1.5 font-mono text-[10px] font-bold text-[#F5B942] uppercase">
                     <Award className="h-3.5 w-3.5" aria-hidden="true" />
                     <span>PLAYER OF THE MATCH</span>
                   </div>
-                  <div className="mt-1 font-display text-xl font-extrabold text-white uppercase">
+                  <div className="mt-1 font-display text-xl font-extrabold text-[#F5F2EA] uppercase">
                     {matchResult.playerOfTheMatch.playerName}
                   </div>
-                  <div className="mt-0.5 font-mono text-xs text-slate-300">
+                  <div className="mt-0.5 font-mono text-xs text-[#9DA8B3]">
                     {matchResult.playerOfTheMatch.summary} ·{' '}
-                    <span className="font-bold text-[#F59E0B]">
+                    <span className="font-bold text-[#F5B942]">
                       {matchResult.playerOfTheMatch.impactPoints} IMP
                     </span>
                   </div>
@@ -2371,28 +2744,28 @@ export function MatchCenter({
               )}
 
               {matchResult.bestImpact && (
-                <div className="border border-white/15 bg-[#132338] p-3.5">
-                  <div className="flex items-center gap-1.5 font-mono text-[10px] font-bold text-purple-300 uppercase">
+                <div className="border border-[#263039] bg-[#111820] p-3">
+                  <div className="flex items-center gap-1.5 font-mono text-[10px] font-bold text-[#F05A32] uppercase">
                     <Flame className="h-3.5 w-3.5" aria-hidden="true" />
                     <span>BEST IMPACT</span>
                   </div>
-                  <div className="mt-1 font-display text-xl font-extrabold text-white uppercase">
+                  <div className="mt-1 font-display text-xl font-extrabold text-[#F5F2EA] uppercase">
                     {matchResult.bestImpact.playerName}
                   </div>
-                  <div className="mt-0.5 font-mono text-xs text-slate-300">
+                  <div className="mt-0.5 font-mono text-xs text-[#9DA8B3]">
                     {matchResult.bestImpact.summary} ·{' '}
-                    <span className="font-bold text-purple-300">
+                    <span className="font-bold text-[#F05A32]">
                       {matchResult.bestImpact.impactPoints} IMP
                     </span>
                   </div>
                 </div>
               )}
 
-              <div className="border border-white/15 bg-[#132338] p-3.5">
-                <div className="font-mono text-[10px] font-bold text-emerald-300 uppercase">
+              <div className="border border-[#263039] bg-[#111820] p-3">
+                <div className="font-mono text-[10px] font-bold text-[#22D36B] uppercase">
                   KEY MOMENT
                 </div>
-                <p className="mt-1 text-xs leading-relaxed text-slate-200">
+                <p className="mt-1 text-xs leading-relaxed text-[#9DA8B3]">
                   {matchResult.keyMoment}
                 </p>
               </div>
@@ -2401,7 +2774,7 @@ export function MatchCenter({
             {/* Post-Match D3 Runs Per Over & Wickets Narrative Chart */}
             {(matchResult.firstScorecard?.overHistory?.length ||
               matchResult.secondScorecard?.overHistory?.length) && (
-              <div className="mt-4">
+              <div className="mt-3">
                 <div className="mb-2 flex items-center gap-1.5">
                   <button
                     type="button"
@@ -2409,8 +2782,8 @@ export function MatchCenter({
                     onClick={() => setPostChartInnings(1)}
                     className={`rounded-[2px] border px-2.5 py-1 font-mono text-[10px] font-extrabold uppercase ${
                       postChartInnings === 1
-                        ? 'border-[#F59E0B] bg-[#F59E0B] text-[#141619]'
-                        : 'border-white/25 bg-white/10 text-slate-200'
+                        ? 'border-[#22D36B] bg-[#22D36B] text-[#06110A]'
+                        : 'border-[#263039] bg-[#111820] text-[#9DA8B3] hover:text-[#F5F2EA]'
                     }`}
                   >
                     1st Inn ({season.teams[matchResult.firstInnings.teamId].shortName})
@@ -2421,8 +2794,8 @@ export function MatchCenter({
                     onClick={() => setPostChartInnings(2)}
                     className={`rounded-[2px] border px-2.5 py-1 font-mono text-[10px] font-extrabold uppercase ${
                       postChartInnings === 2
-                        ? 'border-[#F59E0B] bg-[#F59E0B] text-[#141619]'
-                        : 'border-white/25 bg-white/10 text-slate-200'
+                        ? 'border-[#22D36B] bg-[#22D36B] text-[#06110A]'
+                        : 'border-[#263039] bg-[#111820] text-[#9DA8B3] hover:text-[#F5F2EA]'
                     }`}
                   >
                     2nd Inn ({season.teams[matchResult.secondInnings.teamId].shortName})
@@ -2450,22 +2823,37 @@ export function MatchCenter({
               </div>
             )}
 
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-white/15 pt-4">
-              <button
-                type="button"
-                data-testid="toggle-scorecard-btn"
-                onClick={() => setShowScorecard((s) => !s)}
-                className="inline-flex min-h-[40px] items-center gap-1.5 rounded-[3px] border border-white/25 bg-white/10 px-4 py-1.5 font-mono text-xs font-bold text-white uppercase hover:bg-white/20"
-              >
-                <FileText className="h-3.5 w-3.5" aria-hidden="true" />
-                <span>{showScorecard ? 'HIDE SCORECARD' : 'VIEW SCORECARD'}</span>
-              </button>
+            {/* Action Buttons: SCORECARD · STANDINGS · NEXT MATCH */}
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-[#263039] pt-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  data-testid="toggle-scorecard-btn"
+                  onClick={() => setShowScorecard((s) => !s)}
+                  className="inline-flex min-h-[40px] items-center gap-1.5 rounded-[2px] border border-[#263039] bg-[#111820] px-4 py-1.5 font-mono text-xs font-bold text-[#F5F2EA] uppercase transition-colors hover:border-[#22D36B]/60"
+                >
+                  <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span>{showScorecard ? 'HIDE SCORECARD' : 'SCORECARD'}</span>
+                </button>
+
+                {onCompleteToStandings && (
+                  <button
+                    type="button"
+                    data-testid="commit-standings-btn"
+                    onClick={() => onCompleteToStandings(matchResult)}
+                    className="inline-flex min-h-[40px] items-center gap-1.5 rounded-[2px] border border-[#263039] bg-[#111820] px-4 py-1.5 font-mono text-xs font-bold text-[#F5F2EA] uppercase transition-colors hover:border-[#F5B942]/60"
+                  >
+                    <Trophy className="h-3.5 w-3.5 text-[#F5B942]" aria-hidden="true" />
+                    <span>STANDINGS</span>
+                  </button>
+                )}
+              </div>
 
               <button
                 type="button"
                 data-testid="commit-next-match-btn"
                 onClick={() => onCompleteMatch(matchResult)}
-                className="inline-flex min-h-[44px] items-center gap-2 rounded-[3px] border-2 border-white/25 bg-[#D94E28] px-6 py-2 font-display text-lg font-extrabold tracking-wider text-white uppercase hover:bg-[#B83C1B]"
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-[2px] border border-[#22D36B] bg-[#22D36B] px-6 py-2 font-display text-lg font-extrabold tracking-wider text-[#06110A] uppercase transition-colors hover:bg-[#1EC161]"
               >
                 <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
                 <span>NEXT MATCH</span>
@@ -2509,7 +2897,7 @@ export function MatchCenter({
                   );
                   if (found) onInspectPlayer(found);
                 }}
-                className="font-mono text-[11px] font-bold text-[#4A4E54] underline hover:text-[#141619]"
+                className="font-mono text-[11px] font-bold text-[#9DA8B3] underline hover:text-[#22D36B]"
               >
                 Inspect POTM Profile ({matchResult.playerOfTheMatch.playerName})
               </button>

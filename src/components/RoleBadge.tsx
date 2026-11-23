@@ -14,12 +14,12 @@ export function getDisplayRoleBadge(role: PlayerRole, bowlingStyle: string = '')
 }
 
 const ROLE_BADGE_STYLES: Record<DisplayRoleBadge, string> = {
-  BAT: 'bg-[#1D4ED8] text-white border-[#1E3A8A]',
-  WK: 'bg-[#B45309] text-white border-[#78350F]',
-  AR: 'bg-[#6D28D9] text-white border-[#4C1D95]',
-  PACE: 'bg-[#C2410C] text-white border-[#7C2D12]',
-  SPIN: 'bg-[#BE185D] text-white border-[#831843]',
-  UNK: 'bg-[#475569] text-white border-[#334155]',
+  BAT: 'bg-[#10233F] text-[#60A5FA] border-[#2563EB]/45',
+  WK: 'bg-[#261D0B] text-[#F5B942] border-[#F5B942]/45',
+  AR: 'bg-[#1F1536] text-[#C084FC] border-[#A855F7]/45',
+  PACE: 'bg-[#29150F] text-[#F05A32] border-[#F05A32]/45',
+  SPIN: 'bg-[#281217] text-[#F87171] border-[#E44949]/45',
+  UNK: 'bg-[#151D26] text-[#9DA8B3] border-[#263039]',
 };
 
 export function RoleBadge({

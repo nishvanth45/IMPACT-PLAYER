@@ -1,46 +1,398 @@
 @import "tailwindcss";
 
-@theme {
-  --font-display: "Barlow Condensed", sans-serif;
-  --font-sans: "Plus Jakarta Sans", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", monospace;
-}
-
 @layer base {
-  html {
-    font-family: var(--font-sans);
-    background-color: #f5f1e8;
-    color: #141619;
+  :root {
+    --bg-main: #080B0D;
+    --bg-panel: #0E1318;
+    --bg-panel-secondary: #111820;
+    --border: #263039;
+
+    --text-primary: #F5F2EA;
+    --text-secondary: #9DA8B3;
+
+    --green: #22D36B;
+    --orange: #F05A32;
+    --gold: #F5B942;
+    --red: #E44949;
+    color-scheme: dark;
   }
 
-  .tabular-nums {
-    font-variant-numeric: tabular-nums;
+  html,
+  body {
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  .font-display {
+    font-family: 'Barlow Condensed', 'Plus Jakarta Sans', system-ui, sans-serif;
+    letter-spacing: 0.02em;
+  }
+
+  .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
   }
 }
 
-.scorebook-grid {
-  background-image:
-    linear-gradient(to right, rgba(20, 22, 25, 0.035) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(20, 22, 25, 0.035) 1px, transparent 1px);
-  background-size: 24px 24px;
+/* Custom sleek dark scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #080B0D;
+}
+::-webkit-scrollbar-thumb {
+  background: #263039;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3A4856;
 }
 
-.pitch-stripes {
-  background-image: repeating-linear-gradient(
-    90deg,
-    rgba(255, 255, 255, 0.05) 0px,
-    rgba(255, 255, 255, 0.05) 28px,
-    transparent 28px,
-    transparent 56px
-  );
+/* ============================================================================
+   IMPACT PLAYER — GPU-FRIENDLY SPORTS-BROADCAST ANIMATION SYSTEM
+   Fast (150–350ms UI, 500–1100ms key moments), sharp, non-blocking.
+   Strictly transform & opacity driven where possible.
+   ============================================================================ */
+
+@keyframes ipFadeSlideUp {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes ipPageEnter {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 9px, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes ipSlideInRight {
+  0% {
+    opacity: 0;
+    transform: translate3d(26px, 0, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes ipRowEnter {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 7px, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes ipGreenFlash {
+  0% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.72), inset 0 0 0 1px rgba(34, 197, 94, 0.9);
+    background-color: rgba(34, 197, 94, 0.22);
+  }
+  45% {
+    box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.16), inset 0 0 0 1px rgba(34, 197, 94, 0.65);
+    background-color: rgba(34, 197, 94, 0.1);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0), inset 0 0 0 0 rgba(34, 197, 94, 0);
+    background-color: transparent;
+  }
+}
+
+@keyframes ipGreenLockFlash {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.85);
+  }
+  40% {
+    transform: scale(1.03);
+    box-shadow: 0 0 0 10px rgba(34, 197, 94, 0.12);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+  }
+}
+
+@keyframes ipFlightToSquad {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0) scale(0.92);
+  }
+  18% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  72% {
+    opacity: 1;
+    transform: translate3d(0, -14px, 0) scale(0.98);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, -28px, 0) scale(0.92);
+  }
+}
+
+@keyframes ipChipPop {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0) scale(0.92);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes ipBallPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.68);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes ipCoinSpin {
+  0% {
+    transform: perspective(600px) rotateY(0deg) translateY(0);
+  }
+  30% {
+    transform: perspective(600px) rotateY(540deg) translateY(-10px);
+  }
+  70% {
+    transform: perspective(600px) rotateY(1080deg) translateY(-5px);
+  }
+  100% {
+    transform: perspective(600px) rotateY(1440deg) translateY(0);
+  }
+}
+
+@keyframes ipImpactLineExpand {
+  0% {
+    transform: scaleX(0);
+    opacity: 0.4;
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+}
+
+@keyframes ipBroadcastBanner {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, -8px, 0) scale(0.96);
+  }
+  14% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  84% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, -4px, 0) scale(0.98);
+  }
+}
+
+@keyframes ipChasePulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px rgba(217, 78, 40, 0.55), 0 0 12px rgba(217, 78, 40, 0.14);
+  }
+  50% {
+    box-shadow: 0 0 0 2px rgba(217, 78, 40, 0.92), 0 0 20px rgba(217, 78, 40, 0.34);
+  }
+}
+
+@keyframes ipResultReveal {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes ipEdgePulseGreen {
+  0% {
+    box-shadow: inset 0 0 0 2px rgba(34, 197, 94, 0.9), 0 0 16px rgba(34, 197, 94, 0.25);
+  }
+  100% {
+    box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0), 0 0 0 rgba(34, 197, 94, 0);
+  }
+}
+
+@keyframes ipEdgePulseSix {
+  0% {
+    box-shadow: inset 0 0 0 2px rgba(34, 197, 94, 0.95), 0 0 24px rgba(245, 158, 11, 0.36);
+  }
+  100% {
+    box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0), 0 0 0 rgba(245, 158, 11, 0);
+  }
+}
+
+@keyframes ipEdgePulseWicket {
+  0% {
+    box-shadow: inset 0 0 0 2px rgba(239, 68, 68, 0.92), 0 0 22px rgba(217, 78, 40, 0.36);
+  }
+  100% {
+    box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0), 0 0 0 rgba(217, 78, 40, 0);
+  }
+}
+
+/* Utility animation classes */
+.ip-fade-slide {
+  animation: ipFadeSlideUp 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ip-page-enter {
+  animation: ipPageEnter 185ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ip-slide-right {
+  animation: ipSlideInRight 230ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ip-row-enter {
+  animation: ipRowEnter 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ip-green-flash {
+  animation: ipGreenFlash 420ms ease-out both;
+}
+
+.ip-green-lock-flash {
+  animation: ipGreenLockFlash 460ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ip-flight-badge {
+  animation: ipFlightToSquad 720ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.ip-chip-pop {
+  animation: ipChipPop 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ip-ball-pop {
+  animation: ipBallPop 190ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ip-coin-spin {
+  animation: ipCoinSpin 920ms cubic-bezier(0.25, 0.85, 0.35, 1) both;
+  transform-style: preserve-3d;
+}
+
+.ip-impact-line {
+  transform-origin: center;
+  animation: ipImpactLineExpand 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ip-broadcast-banner {
+  animation: ipBroadcastBanner 650ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ip-chase-pulse {
+  animation: ipChasePulse 1.45s ease-in-out infinite;
+}
+
+.ip-result-reveal {
+  animation: ipResultReveal 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ip-edge-four {
+  animation: ipEdgePulseGreen 500ms ease-out both;
+}
+
+.ip-edge-six {
+  animation: ipEdgePulseSix 640ms ease-out both;
+}
+
+.ip-edge-wicket {
+  animation: ipEdgePulseWicket 780ms ease-out both;
+}
+
+/* Login interactive button hover/focus green glow */
+.ip-login-btn-glow {
+  transition: border-color 160ms ease-out, box-shadow 180ms ease-out,
+    background-color 160ms ease-out, transform 160ms ease-out;
+}
+.ip-login-btn-glow:hover:not(:disabled),
+.ip-login-btn-glow:focus-visible:not(:disabled) {
+  border-color: #22C55E;
+  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.45), 0 0 18px rgba(34, 197, 94, 0.22);
+}
+
+/* Reduced motion & explicit OFF mode: disable all motion cleanly */
+[data-animation-mode="off"] *,
+[data-animation-mode="off"] *::before,
+[data-animation-mode="off"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-delay: 0ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+[data-animation-mode="reduced"] .ip-chase-pulse,
+[data-animation-mode="reduced"] .ip-coin-spin {
+  animation: none !important;
+}
+
+[data-animation-mode="reduced"] .ip-fade-slide,
+[data-animation-mode="reduced"] .ip-page-enter,
+[data-animation-mode="reduced"] .ip-slide-right,
+[data-animation-mode="reduced"] .ip-row-enter,
+[data-animation-mode="reduced"] .ip-chip-pop,
+[data-animation-mode="reduced"] .ip-ball-pop,
+[data-animation-mode="reduced"] .ip-result-reveal {
+  animation-duration: 110ms !important;
+  animation-delay: 0ms !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+  .ip-chase-pulse,
+  .ip-coin-spin,
+  .ip-flight-badge {
+    animation: none !important;
+  }
+
+  .ip-fade-slide,
+  .ip-page-enter,
+  .ip-slide-right,
+  .ip-row-enter,
+  .ip-chip-pop,
+  .ip-ball-pop,
+  .ip-result-reveal {
+    animation-duration: 90ms !important;
+    animation-delay: 0ms !important;
   }
 }

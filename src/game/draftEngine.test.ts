@@ -4,18 +4,28 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   DEFAULT_SETTINGS,
+  calculateStableGamePriceCr,
   canSelectPlayer,
   createInitialDraftState,
   executeSpin,
+  formatPlayerSalary,
   getEligibleSpinCombos,
   getOverseasCount,
+  getPlayerDataCompleteness,
+  getPlayerDisplayPriceInfo,
+  getPlayerDraftCostCr,
+  getPlayerSalaryCr,
   getRoleCounts,
   selectPlayerForDraft,
 } from './draftEngine';
 import {
+  IPL_DATABASE_URL,
   JsonIplRepository,
+  buildDatabaseValidationReport,
   getActivePlayerRepository,
   getSquad,
+  isProvisionalStatus,
+  loadIplDatabase,
   parseIplDatabase,
   setActivePlayerRepository,
 } from '../data/playerRepository';
@@ -23,10 +33,7 @@ import { resolveFranchiseCode } from '../data/franchises';
 import { getRatingBand } from './ratingEngine';
 import type { IplDatabaseJson, PlayerDetailedAttributes, PlayerSeasonRecord } from '../types/game';
 
-const dbPath = path.resolve(
-  process.cwd(),
-  'public/assets/aistudio/ipl_database_final_ba929b5d.json'
-);
+const dbPath = path.resolve(process.cwd(), 'public/impact_player_database.json');
 const rawDbJson = JSON.parse(fs.readFileSync(dbPath, 'utf8')) as IplDatabaseJson;
 const parsedDb = parseIplDatabase(rawDbJson);
 const realRepo = new JsonIplRepository(parsedDb);
@@ -67,6 +74,15 @@ const DEFAULT_TEST_ATTRIBUTES: PlayerDetailedAttributes = {
 
 const makePlayer = (overrides: Partial<PlayerSeasonRecord> = {}): PlayerSeasonRecord => {
   const ovr = overrides.overallRating ?? 84;
+  const salCr =
+    overrides.salary !== undefined
+      ? overrides.salary.salaryCr
+      : overrides.salaryCr !== undefined
+        ? overrides.salaryCr
+        : 8.5;
+  const salVerified = overrides.salaryVerified ?? overrides.salary?.verified ?? true;
+  const salType = overrides.salaryType ?? overrides.salary?.type ?? 'AUCTION';
+
   return {
     id: overrides.playerId ?? 'test_player',
     name: overrides.playerName ?? 'Test Player',
@@ -87,6 +103,8 @@ const makePlayer = (overrides: Partial<PlayerSeasonRecord> = {}): PlayerSeasonRe
     strikeRate: 0,
     wickets: 0,
     economy: 0,
+    hasRatings: true,
+    isIncomplete: false,
     battingRating: 85,
     bowlingRating: 20,
     impactRating: overrides.impactRating ?? 82,
@@ -94,8 +112,17 @@ const makePlayer = (overrides: Partial<PlayerSeasonRecord> = {}): PlayerSeasonRe
     ratingBand: overrides.ratingBand ?? getRatingBand(ovr),
     form: overrides.form ?? 'NORMAL',
     attributes: overrides.attributes ?? DEFAULT_TEST_ATTRIBUTES,
-    priceCr: 8.5,
-    ratingStatus: 'PROVISIONAL',
+    salaryCr: salCr,
+    salaryType: salType,
+    salaryVerified: salVerified,
+    salary: overrides.salary ?? {
+      salaryCr: salCr,
+      verified: salVerified,
+      type: salType,
+      status: salCr === null ? 'unknown' : salVerified ? 'verified' : 'reported',
+    },
+    priceCr: salCr ?? 0,
+    ratingStatus: 'FINAL',
     ...overrides,
   };
 };
@@ -136,7 +163,7 @@ test('executeSpin only picks franchise-seasons in database and never repeats in 
   assert.equal(getEligibleSpinCombos(state, realRepo).length, 0);
 });
 
-test('selecting a player deducts exact priceCr, increments squad and overseas count, and returns to READY_TO_SPIN', () => {
+test('selecting a player deducts exact salary.salaryCr, increments squad and overseas count, and returns to READY_TO_SPIN', () => {
   let state = createInitialDraftState();
   const overseasStar = makePlayer({
     playerId: 'ab-de-villiers',
@@ -144,7 +171,8 @@ test('selecting a player deducts exact priceCr, increments squad and overseas co
     nationality: 'Overseas',
     playerType: 'Overseas',
     isOverseas: true,
-    priceCr: 16.5,
+    salaryCr: 16.5,
+    salary: { salaryCr: 16.5, verified: true, type: 'RETAINED', status: 'verified' },
   });
 
   state = selectPlayerForDraft(state, overseasStar);
@@ -177,7 +205,11 @@ test('insufficient purse blocks purchase cleanly', () => {
     ...createInitialDraftState(),
     remainingPurseCr: 5.0,
   };
-  const expensive = makePlayer({ playerId: 'jasprit-bumrah', priceCr: 12.0 });
+  const expensive = makePlayer({
+    playerId: 'jasprit-bumrah',
+    salaryCr: 12.0,
+    salary: { salaryCr: 12.0, verified: true, type: 'RETAINED', status: 'verified' },
+  });
   const check = canSelectPlayer(state, expensive);
   assert.equal(check.allowed, false);
   assert.equal(check.reason, 'INSUFFICIENT_PURSE');
@@ -194,7 +226,8 @@ test('overseas limit (6/6) blocks 7th overseas player while still allowing Domes
         isOverseas: true,
         playerType: 'Overseas',
         nationality: 'Overseas',
-        priceCr: 5.0,
+        salaryCr: 5.0,
+        salary: { salaryCr: 5.0, verified: true, type: 'AUCTION', status: 'verified' },
       })
     );
   }
@@ -206,7 +239,8 @@ test('overseas limit (6/6) blocks 7th overseas player while still allowing Domes
     isOverseas: true,
     playerType: 'Overseas',
     nationality: 'Overseas',
-    priceCr: 5.0,
+    salaryCr: 5.0,
+    salary: { salaryCr: 5.0, verified: true, type: 'AUCTION', status: 'verified' },
   });
   const osCheck = canSelectPlayer(state, seventhOs);
   assert.equal(osCheck.allowed, false);
@@ -218,7 +252,8 @@ test('overseas limit (6/6) blocks 7th overseas player while still allowing Domes
     isOverseas: false,
     playerType: 'Domestic',
     nationality: 'India',
-    priceCr: 5.0,
+    salaryCr: 5.0,
+    salary: { salaryCr: 5.0, verified: true, type: 'AUCTION', status: 'verified' },
   });
   assert.equal(canSelectPlayer(state, indianPlayer).allowed, true);
 });
@@ -234,7 +269,8 @@ test('draft transitions to COMPLETED when squad reaches 15 players', () => {
         isOverseas: i <= 4,
         playerType: i <= 4 ? 'Overseas' : 'Domestic',
         nationality: i <= 4 ? 'Overseas' : 'India',
-        priceCr: 4.0,
+        salaryCr: 4.0,
+        salary: { salaryCr: 4.0, verified: true, type: 'AUCTION', status: 'verified' },
       })
     );
   }
@@ -243,8 +279,11 @@ test('draft transitions to COMPLETED when squad reaches 15 players', () => {
   assert.equal(state.remainingPurseCr, 60);
 });
 
-test('ipl_database_final.json yields exact PBKS 2022 (25 players) and KKR 2014 (20 players) without slicing', () => {
+test('impact_player_database.json yields exact full squads (CSK 2018, PBKS 2022, KKR 2014) with zero slicing and indexed lookups', () => {
   setActivePlayerRepository(realRepo);
+
+  const csk2018 = getSquad('CSK', 2018);
+  assert.equal(csk2018.length, 24);
 
   const pbks2022 = getSquad('PBKS', 2022);
   const pbksByFullName = getSquad('Punjab Kings', 2022);
@@ -254,23 +293,60 @@ test('ipl_database_final.json yields exact PBKS 2022 (25 players) and KKR 2014 (
   const kkr2014 = getSquad('KKR', 2014);
   assert.equal(kkr2014.length, 20);
 
-  // Verify JSON metadata & independent priceCr are preserved verbatim while ratings use upgraded 20-99 architecture
+  // Verify indexed lookup by playerId and unique canonical players (with Cricsheet aliases)
+  const kohliSeasons = realRepo.getPlayerSeasons('virat-kohli');
+  assert.ok(kohliSeasons.length >= 15, 'Expected full multi-season history for Virat Kohli');
+
+  const uniquePlayers = realRepo.getUniqueCanonicalPlayers();
+  assert.equal(uniquePlayers.length, 757);
+  const ruturaj = uniquePlayers.find((u) => u.playerId === 'ruturaj-gaikwad');
+  assert.ok(ruturaj, 'Expected Ruturaj Gaikwad in unique canonical players');
+  assert.ok(
+    ruturaj.aliases.some((a) => a.toLowerCase().includes('rd gaikwad')),
+    `Expected alias RD Gaikwad, got ${JSON.stringify(ruturaj.aliases)}`
+  );
+
+  // Verify nested ratings, salary, and ratingQuality are preserved verbatim; missing real salary derives stable GAME VALUE
   const rawGambhir = rawDbJson.seasons['2014']['KKR'].players.find(
-    (p) => p.id === 'gautam-gambhir'
+    (p) => (p.playerId ?? p.id) === 'gautam-gambhir'
   )!;
-  const loadedGambhir = kkr2014.find((p) => p.id === 'gautam-gambhir')!;
-  assert.equal(loadedGambhir.name, rawGambhir.name);
+  const loadedGambhir = kkr2014.find((p) => p.playerId === 'gautam-gambhir')!;
+  assert.equal(loadedGambhir.playerName, rawGambhir.name);
   assert.equal(loadedGambhir.role, rawGambhir.role);
   assert.equal(loadedGambhir.isOverseas, rawGambhir.isOverseas);
-  assert.ok(loadedGambhir.battingRating >= 20 && loadedGambhir.battingRating <= 99);
-  assert.ok(loadedGambhir.bowlingRating >= 20 && loadedGambhir.bowlingRating <= 99);
-  assert.ok(loadedGambhir.impactRating >= 20 && loadedGambhir.impactRating <= 99);
-  assert.ok(loadedGambhir.overallRating >= 20 && loadedGambhir.overallRating <= 99);
-  assert.ok(loadedGambhir.overallRating > 75);
-  assert.equal(loadedGambhir.priceCr, rawGambhir.priceCr);
-  assert.equal(loadedGambhir.ratingStatus, 'PROVISIONAL');
+  assert.equal(loadedGambhir.hasRatings, true);
+  assert.equal(loadedGambhir.battingRating, rawGambhir.ratings!.bat);
+  assert.equal(loadedGambhir.bowlingRating, rawGambhir.ratings!.bowl);
+  assert.equal(loadedGambhir.impactRating, rawGambhir.ratings!.impact);
+  assert.equal(loadedGambhir.overallRating, rawGambhir.ratings!.overall);
+  assert.equal(getPlayerSalaryCr(loadedGambhir), null);
+  assert.equal(loadedGambhir.salaryVerified, false);
+  assert.equal(loadedGambhir.salarySource, 'GAME_VALUE');
+  assert.ok(
+    typeof loadedGambhir.gamePriceCr === 'number' && loadedGambhir.gamePriceCr >= 0.5
+  );
+  assert.equal(
+    formatPlayerSalary(loadedGambhir),
+    `₹${loadedGambhir.gamePriceCr} CR · GAME VALUE`
+  );
+  assert.equal(isProvisionalStatus(loadedGambhir.ratingQuality?.status), false);
+  assert.equal(loadedGambhir.ratingStatus, 'FINAL');
   assert.equal(loadedGambhir.form, 'NORMAL');
-  assert.ok(loadedGambhir.attributes && loadedGambhir.attributes.batting.technique >= 20);
+
+  // Verify verified salary player (Rinku 2023 = ₹0.55 CR · REAL CONTRACT) & game-value deduction
+  const rinku2023 = getSquad('KKR', 2023).find((p) => p.playerId === 'rinku-singh')!;
+  assert.equal(getPlayerSalaryCr(rinku2023), 0.55);
+  assert.equal(rinku2023.salaryCr, 0.55);
+  assert.equal(rinku2023.salaryVerified, true);
+  assert.equal(rinku2023.salarySource, 'REAL_CONTRACT');
+  assert.equal(formatPlayerSalary(rinku2023), '₹0.55 CR · REAL CONTRACT');
+
+  let draft = createInitialDraftState();
+  const gambhirCost = getPlayerDraftCostCr(loadedGambhir);
+  draft = selectPlayerForDraft(draft, loadedGambhir); // deducts stable GAME VALUE
+  assert.equal(draft.remainingPurseCr, Math.round((120 - gambhirCost) * 100) / 100);
+  draft = selectPlayerForDraft(draft, rinku2023); // ₹0.55 Cr REAL CONTRACT deduction
+  assert.equal(draft.remainingPurseCr, Math.round((120 - gambhirCost - 0.55) * 100) / 100);
 
   // Verify all 153 franchise-seasons exist and have non-empty, duplicate-free squads
   const allCombos = realRepo.getAvailableSpinCombos(2008, 2026);
@@ -278,18 +354,155 @@ test('ipl_database_final.json yields exact PBKS 2022 (25 players) and KKR 2014 (
   for (const combo of allCombos) {
     const pool = realRepo.getSquad(combo.franchise, combo.season);
     assert.ok(pool.length > 0, `Expected non-empty squad for ${combo.comboKey}`);
-    const ids = new Set(pool.map((p) => p.id));
+    const ids = new Set(pool.map((p) => p.playerId));
     assert.equal(ids.size, pool.length, `Duplicate player in ${combo.comboKey}`);
   }
 });
 
-test('UNKNOWN role and isOverseas: null records from JSON are safely counted and handled', () => {
+test('salary rules distinguish REAL CONTRACT vs stable GAME VALUE, keep pending players draftable, and expose 7-item PLAYER DATA checklist', () => {
+  assert.equal(IPL_DATABASE_URL, '/impact_player_database.json');
+
+  const rawFlatRecords = {
+    records: [
+      {
+        playerId: 'real-contract-star',
+        playerName: 'Real Contract Star',
+        franchise: 'CSK',
+        season: 2024,
+        role: 'BAT',
+        isOverseas: false,
+        identityStatus: 'RESOLVED',
+        priceCr: 8,
+        ratings: { bat: 89, bowl: 24, impact: 92, overall: 90 },
+        salary: { salaryCr: 14.5, verified: true, type: 'AUCTION', status: 'verified' },
+        ratingQuality: { status: 'VERIFIED_STATS_DERIVED' },
+      },
+      {
+        playerId: 'game-value-player',
+        playerName: 'Game Value Player',
+        franchise: 'CSK',
+        season: 2024,
+        role: 'AR',
+        isOverseas: false,
+        identityStatus: 'RESOLVED',
+        gamePriceCr: 6.5,
+        ratings: { bat: 75, bowl: 72, impact: 78, overall: 77 },
+        salary: { salaryCr: null, verified: false, type: 'UNKNOWN', status: 'unknown' },
+        ratingQuality: { status: 'VERIFIED_STATS_DERIVED' },
+      },
+      {
+        playerId: 'pending-ratings-and-salary',
+        playerName: 'Pending Data Player',
+        franchise: 'CSK',
+        season: 2024,
+        role: 'BOWL',
+        isOverseas: false,
+        identityStatus: 'UNRESOLVED',
+        priceCr: 8,
+        salaryCr: 12,
+        contractValue: 15,
+        ratings: null,
+        salary: { salaryCr: null, verified: false, type: 'UNKNOWN', status: 'unknown' },
+        ratingQuality: { status: 'INCOMPLETE_NO_PERFORMANCE_MATCH' },
+      },
+    ],
+  };
+
+  const customRepo = new JsonIplRepository(parseIplDatabase(rawFlatRecords));
+  const squad = customRepo.getSquad('CSK', 2024);
+  assert.equal(squad.length, 3);
+
+  const pReal = squad.find((p) => p.playerId === 'real-contract-star')!;
+  assert.equal(pReal.battingRating, 89);
+  assert.equal(pReal.bowlingRating, 24);
+  assert.equal(pReal.impactRating, 92);
+  assert.equal(pReal.overallRating, 90);
+  assert.equal(pReal.salarySource, 'REAL_CONTRACT');
+  assert.equal(getPlayerDraftCostCr(pReal), 14.5);
+  assert.equal(formatPlayerSalary(pReal), '₹14.5 CR · REAL CONTRACT');
+  assert.equal(getPlayerDisplayPriceInfo(pReal).tag, 'REAL CONTRACT');
+  const realChecklist = getPlayerDataCompleteness(pReal);
+  assert.equal(realChecklist.hasPendingData, false);
+  assert.equal(realChecklist.items.length, 7);
+
+  const pGameVal = squad.find((p) => p.playerId === 'game-value-player')!;
+  assert.equal(pGameVal.salaryCr, null);
+  assert.equal(pGameVal.gamePriceCr, 6.5);
+  assert.equal(pGameVal.salarySource, 'GAME_VALUE');
+  assert.equal(getPlayerDraftCostCr(pGameVal), 6.5);
+  assert.equal(formatPlayerSalary(pGameVal), '₹6.5 CR · GAME VALUE');
+  assert.equal(getPlayerDisplayPriceInfo(pGameVal).tag, 'GAME VALUE');
+  const gameValChecklist = getPlayerDataCompleteness(pGameVal);
+  assert.equal(gameValChecklist.hasPendingData, true);
+  assert.equal(gameValChecklist.items.find((i) => i.key === 'salary')?.available, false);
+  assert.equal(gameValChecklist.items.find((i) => i.key === 'ratings')?.available, true);
+
+  const pPending = squad.find((p) => p.playerId === 'pending-ratings-and-salary')!;
+  assert.equal(pPending.salaryCr, null); // real historical salary stays null (never reads legacy priceCr=8 or salaryCr=12)
+  assert.equal(pPending.salaryVerified, false);
+  assert.equal(pPending.salarySource, 'GAME_VALUE');
+  assert.equal(pPending.gamePriceCr, 0.75); // modest stable base value for domestic unrated BOWL (not ₹8 Cr)
+  assert.equal(pPending.hasRatings, false);
+  assert.equal(pPending.overallRating, 0); // zero fake 58/20/58 ratings
+  assert.equal(formatPlayerSalary(pPending), '₹0.75 CR · GAME VALUE');
+  assert.equal(canSelectPlayer(createInitialDraftState(), pPending).allowed, true);
+
+  const pendingChecklist = getPlayerDataCompleteness(pPending);
+  assert.equal(pendingChecklist.hasPendingData, true);
+  assert.equal(pendingChecklist.items.find((i) => i.key === 'identity')?.available, false);
+  assert.equal(pendingChecklist.items.find((i) => i.key === 'squad')?.available, true);
+  assert.equal(pendingChecklist.items.find((i) => i.key === 'role')?.available, true);
+  assert.equal(pendingChecklist.items.find((i) => i.key === 'origin')?.available, true);
+  assert.equal(pendingChecklist.items.find((i) => i.key === 'stats')?.available, false);
+  assert.equal(pendingChecklist.items.find((i) => i.key === 'ratings')?.available, false);
+  assert.equal(pendingChecklist.items.find((i) => i.key === 'salary')?.available, false);
+
+  // Verify calculateStableGamePriceCr scales monotonically with ratings and is deterministic
+  const lowPrice = calculateStableGamePriceCr({
+    hasRatings: true,
+    battingRating: 46,
+    bowlingRating: 20,
+    impactRating: 45,
+    overallRating: 46,
+    role: 'BAT',
+    isOverseas: false,
+  });
+  const elitePrice = calculateStableGamePriceCr({
+    hasRatings: true,
+    battingRating: 88,
+    bowlingRating: 20,
+    impactRating: 92,
+    overallRating: 88,
+    runs: 600,
+    role: 'BAT',
+    isOverseas: false,
+  });
+  assert.ok(elitePrice > lowPrice && lowPrice >= 0.5 && elitePrice <= 16);
+
+  // Verify real database validation report counts
+  const report = buildDatabaseValidationReport(realRepo);
+  assert.equal(report.totalPlayerRecords, 3552);
+  assert.equal(report.uniqueCanonicalPlayers, 757);
+  assert.equal(report.verifiedSalariesFound, 2081);
+  assert.equal(report.gameValuesFound, 1471);
+  assert.equal(report.unknownSalaries, 1471);
+  assert.equal(report.performanceRatingsFound, 2025);
+});
+
+test('UNKNOWN role and isOverseas: null records from JSON stay draftable with modest GAME VALUE and zero fabricated ratings', () => {
   const rr2026 = realRepo.getSquad('RR', 2026);
-  const pretorious = rr2026.find((p) => p.id === 'lhuan-dre-pretorious');
+  const pretorious = rr2026.find((p) => p.playerId === 'lhuan-dre-pretorious');
   assert.ok(pretorious);
   assert.equal(pretorious.role, 'UNKNOWN');
   assert.equal(pretorious.isOverseas, null);
   assert.equal(pretorious.playerType, 'Unknown');
+  assert.equal(pretorious.hasRatings, false);
+  assert.equal(pretorious.isIncomplete, true);
+  assert.equal(pretorious.overallRating, 0);
+  assert.equal(pretorious.salaryCr, null);
+  assert.equal(pretorious.salarySource, 'GAME_VALUE');
+  assert.equal(formatPlayerSalary(pretorious), '₹0.5 CR · GAME VALUE');
+  assert.equal(canSelectPlayer(createInitialDraftState(), pretorious).allowed, true);
 
   const counts = getRoleCounts([pretorious]);
   assert.equal(counts.UNKNOWN, 1);
@@ -297,13 +510,32 @@ test('UNKNOWN role and isOverseas: null records from JSON are safely counted and
   assert.equal(resolveFranchiseCode('Punjab Kings'), 'PBKS');
 });
 
-test('database loader throws explicit error and never falls back to sample data when unloaded or malformed', () => {
+test('database loader throws PLAYER DATABASE FAILED TO LOAD without mock fallback and caches single runtime fetch', async () => {
   setActivePlayerRepository(null);
-  assert.throws(() => getActivePlayerRepository(), /IPL DATABASE FAILED TO LOAD/);
-  assert.throws(() => parseIplDatabase(null), /IPL DATABASE FAILED TO LOAD/);
-  assert.throws(() => parseIplDatabase({}), /IPL DATABASE FAILED TO LOAD/);
-  assert.throws(() => parseIplDatabase({ seasons: {} }), /IPL DATABASE FAILED TO LOAD/);
+  assert.throws(() => getActivePlayerRepository(), /PLAYER DATABASE FAILED TO LOAD/);
+  assert.throws(() => parseIplDatabase(null), /PLAYER DATABASE FAILED TO LOAD/);
+  assert.throws(() => parseIplDatabase({}), /PLAYER DATABASE FAILED TO LOAD/);
+  assert.throws(() => parseIplDatabase({ seasons: {} }), /PLAYER DATABASE FAILED TO LOAD/);
 
-  // Restore active repository for any subsequent tests
-  setActivePlayerRepository(realRepo);
+  // Verify loadIplDatabase fetches once and reuses cache across subsequent calls
+  let fetchCalls = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => rawDbJson,
+    } as Response;
+  }) as typeof fetch;
+
+  try {
+    const repo1 = await loadIplDatabase('/impact_player_database.json');
+    const repo2 = await loadIplDatabase('/impact_player_database.json');
+    assert.equal(fetchCalls, 1, 'Database should be fetched only once on app start');
+    assert.strictEqual(repo1, repo2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    setActivePlayerRepository(realRepo);
+  }
 });
